@@ -7,8 +7,8 @@ const SHEET_ID = "1WVO-QNNA7ldjAdi7dMoUUCwloBta6BeFVApaStdo0NU";
 const GID_MASTER = "70523329";
 
 const csvUrl = (gid) =>
-  //`https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`
-  'https://docs.google.com/spreadsheets/d/1WVO-QNNA7ldjAdi7dMoUUCwloBta6BeFVApaStdo0NU/edit?usp=sharing';
+  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`;
+ // 'https://docs.google.com/spreadsheets/d/1WVO-QNNA7ldjAdi7dMoUUCwloBta6BeFVApaStdo0NU/edit?usp=sharing';
 
 // ─── CSV PARSER ────────────────────────────────────────────────────────────────
 function parseCsv(text) {
@@ -309,4 +309,5 @@ export default function Dashboard() {
       </div>
     </div>
   );
+
 }
