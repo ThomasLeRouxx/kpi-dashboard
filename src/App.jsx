@@ -218,8 +218,17 @@ function KpiModal({ kpi, history, onClose }) {
           {/* Stats */}
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
             <div style={{ fontSize:12, color:"#94a3b8" }}>
-              <span style={{ color:"#f8fafc", fontWeight:700, fontSize:17 }}>{fmt(kpi.current, kpi.type)}</span>
-              <span style={{ marginLeft:4 }}>/ {fmt(kpi.target, kpi.type)}</span>
+              {kpi.displayLabel ? (
+                <div>
+                  <span style={{ color:"#f8fafc", fontWeight:700, fontSize:17 }}>{kpi.displayLabel}</span>
+                  {kpi.latestRaw && <div style={{ fontSize:11, color:"#475569", marginTop:3 }}>Dernière valeur : {kpi.latestRaw}</div>}
+                </div>
+              ) : (
+                <>
+                  <span style={{ color:"#f8fafc", fontWeight:700, fontSize:17 }}>{fmt(kpi.current, kpi.type)}</span>
+                  <span style={{ marginLeft:4 }}>/ {fmt(kpi.target, kpi.type)}</span>
+                </>
+              )}
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
               <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:24, fontWeight:700, color }}>{pct}%</span>
@@ -288,8 +297,17 @@ function KpiCard({ kpi, history, onOpen }) {
 
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
         <div style={{ fontSize:11, color:"#94a3b8" }}>
-          <span style={{ color:"#e2e8f0", fontWeight:600 }}>{fmt(kpi.current, kpi.type)}</span>
-          <span> / {fmt(kpi.target, kpi.type)}</span>
+          {kpi.displayLabel ? (
+            <span style={{ color:"#e2e8f0", fontWeight:600 }}>{kpi.displayLabel}</span>
+          ) : (
+            <>
+              <span style={{ color:"#e2e8f0", fontWeight:600 }}>{fmt(kpi.current, kpi.type)}</span>
+              <span> / {fmt(kpi.target, kpi.type)}</span>
+            </>
+          )}
+          {kpi.latestRaw && (
+            <div style={{ fontSize:10, color:"#475569", marginTop:2 }}>Dernière valeur : {kpi.latestRaw}</div>
+          )}
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           {hasHist && <span style={{ fontSize:9, color:color+"aa" }}>📈</span>}
@@ -345,23 +363,74 @@ export default function Dashboard() {
         }
       } catch (_) {}
 
-      // Pour chaque KPI, trouver la dernière entrée dans l'historique (tri par semaine)
+      // Pour chaque KPI, trouver la dernière entrée + tout l'historique trié
       const latestByKpi = {};
+      const allByKpi    = {};
       histData.forEach(h => {
         const kid = String(h.kpi_id).trim();
-        if (!latestByKpi[kid] || h.week.localeCompare(latestByKpi[kid].week) > 0) {
+        if (!latestByKpi[kid] || h.week.localeCompare(latestByKpi[kid].week) > 0)
           latestByKpi[kid] = h;
-        }
+        if (!allByKpi[kid]) allByKpi[kid] = [];
+        allByKpi[kid].push(h);
       });
 
-      // Fusionner : si une valeur historique existe, elle remplace current + recalcule progress + status
+      // Nombre de semaines écoulées depuis le 1er jan (S1 → semaine courante)
+      const currentWeekNum = Math.ceil((new Date() - new Date(new Date().getFullYear(), 0, 1)) / (7 * 86400000));
+
+      // ── Logiques spéciales par KPI_ID ──────────────────────────────────────
+      // KPI 9  — Mindshare : % semaines ≥ 2.61% parmi les semaines renseignées
+      // KPI 10 — TEE Rank  : % semaines avec ranking = 1
+      // KPI 12 — LinkedIn  : progression depuis baseline 5000 vers 6000
+
       setKpis(baseKpis.map(k => {
-        const latest = latestByKpi[String(k.id).trim()];
+        const kid     = String(k.id).trim();
+        const latest  = latestByKpi[kid];
+        const entries = (allByKpi[kid] || []).sort((a,b) => a.week.localeCompare(b.week));
+
         if (!latest) return k;
+
+        // ── KPI 9 : Privacy Mindshare ≥ 2.61% ──
+        if (kid === "9") {
+          const THRESHOLD  = 2.61;
+          const weeksAbove = entries.filter(e => parseFloat(e.value) >= THRESHOLD).length;
+          const totalWeeks = Math.max(entries.length, 1);
+          const progress_pct = weeksAbove / totalWeeks;
+          const current   = Math.round(progress_pct * 100); // affiche le % de temps
+          const status    = progress_pct >= 1 ? "Done" : entries.length > 0 ? "In Progress" : "Not Started";
+          return { ...k, current, progress_pct, status,
+            displayLabel: `${weeksAbove}/${totalWeeks} sem. ≥ 2.61%`,
+            latestRaw: parseFloat(latest.value).toFixed(2) + "%" };
+        }
+
+        // ── KPI 10 : #1 TEE Ranking ──
+        if (kid === "10") {
+          const weeksFirst = entries.filter(e => parseFloat(e.value) === 1).length;
+          const totalWeeks = Math.max(entries.length, 1);
+          const progress_pct = weeksFirst / totalWeeks;
+          const current   = Math.round(progress_pct * 100);
+          const status    = progress_pct >= 1 ? "Done" : entries.length > 0 ? "In Progress" : "Not Started";
+          return { ...k, current, progress_pct, status,
+            displayLabel: `${weeksFirst}/${totalWeeks} sem. #1`,
+            latestRaw: `Rank #${parseFloat(latest.value)}` };
+        }
+
+        // ── KPI 12 : LinkedIn followers (baseline 5000 → 6000) ──
+        if (kid === "12") {
+          const BASELINE = 5000;
+          const TARGET   = 6000;
+          const current  = parseFloat(latest.value) || BASELINE;
+          const progress_pct = Math.min((current - BASELINE) / (TARGET - BASELINE), 1);
+          const status   = progress_pct >= 1 ? "Done" : current > BASELINE ? "In Progress" : "Not Started";
+          return { ...k, current, progress_pct, status,
+            displayLabel: `+${current - BASELINE} followers`,
+            latestRaw: `${current} followers` };
+        }
+
+        // ── Logique standard pour tous les autres KPIs ──
         const current = parseFloat(latest.value) || 0;
         const target  = parseFloat(k.target) || 0;
         const progress_pct = target > 0 ? Math.min(current / target, 1) : 0;
-        const status = progress_pct >= 1 ? "Done" : current > 0 ? "In Progress" : "Not Started";
+        const status  = progress_pct >= 1 ? "Done" : current > 0 ? "In Progress" : "Not Started";
         return { ...k, current, progress_pct, status };
       }));
 
