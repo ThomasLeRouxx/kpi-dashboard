@@ -318,7 +318,7 @@ export default function Dashboard() {
       const resMaster = await fetch(csvUrl(GID_MASTER));
       if (!resMaster.ok) throw new Error(`HTTP ${resMaster.status}`);
       const masterRows = parseCsv(await resMaster.text());
-      setKpis(masterRows.map(r => ({
+      const baseKpis = masterRows.map(r => ({
         id:           r["KPI_ID"]        || r[Object.keys(r)[0]],
         name:         r["KPI_Name"]      || r["KPI_name"]  || "",
         dept:         r["Department"]    || r["Dept"]       || "",
@@ -328,19 +328,42 @@ export default function Dashboard() {
         progress_pct: r["Progress_%"]    || r["Progress"]  || 0,
         status:       r["Status"]        || "Not Started",
         weight:       r["Weight"]        || 0,
-      })).filter(k => k.name));
+      })).filter(k => k.name);
 
+      // Fetch history, then override current + progress avec la dernière valeur
+      let histData = [];
       try {
         const resHist = await fetch(csvUrl(GID_HISTORY));
         if (resHist.ok) {
           const histRows = parseCsv(await resHist.text());
-          setHistory(histRows.map(r => ({
+          histData = histRows.map(r => ({
             week:   r["Week"]   || r["week"]   || "",
             kpi_id: r["KPI_ID"] || r["kpi_id"] || "",
             value:  r["Value"]  || r["value"]  || 0,
-          })).filter(h => h.week && h.kpi_id));
+          })).filter(h => h.week && h.kpi_id);
+          setHistory(histData);
         }
       } catch (_) {}
+
+      // Pour chaque KPI, trouver la dernière entrée dans l'historique (tri par semaine)
+      const latestByKpi = {};
+      histData.forEach(h => {
+        const kid = String(h.kpi_id).trim();
+        if (!latestByKpi[kid] || h.week.localeCompare(latestByKpi[kid].week) > 0) {
+          latestByKpi[kid] = h;
+        }
+      });
+
+      // Fusionner : si une valeur historique existe, elle remplace current + recalcule progress + status
+      setKpis(baseKpis.map(k => {
+        const latest = latestByKpi[String(k.id).trim()];
+        if (!latest) return k;
+        const current = parseFloat(latest.value) || 0;
+        const target  = parseFloat(k.target) || 0;
+        const progress_pct = target > 0 ? Math.min(current / target, 1) : 0;
+        const status = progress_pct >= 1 ? "Done" : current > 0 ? "In Progress" : "Not Started";
+        return { ...k, current, progress_pct, status };
+      }));
 
       setLastSync(new Date().toLocaleTimeString("fr-FR"));
     } catch(e) {
