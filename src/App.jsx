@@ -1,15 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
-// ─── CONFIGURATION GOOGLE SHEETS ──────────────────────────────────────────────
-// Pour que ça fonctionne, rendez le Sheet public :
-// Fichier → Partager → "Toute personne avec le lien" → Lecteur
-const SHEET_ID = "1WVO-QNNA7ldjAdi7dMoUUCwloBta6BeFVApaStdo0NU";
-const GID_MASTER = "70523329";
+// ─── CONFIG GOOGLE SHEETS ─────────────────────────────────────────────────────
+const SHEET_ID     = "1WVO-QNNA7ldjAdi7dMoUUCwloBta6BeFVApaStdo0NU";
+const GID_MASTER   = "70523329";
+const GID_HISTORY  = "1595720154"; // onglet Weekly_Snapshot
 
 const csvUrl = (gid) =>
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`;
 
-// ─── CSV PARSER ────────────────────────────────────────────────────────────────
+// ─── CSV PARSER ───────────────────────────────────────────────────────────────
 function parseCsv(text) {
   const lines = text.trim().split("\n").map(l =>
     l.split(",").map(c => c.replace(/^"|"$/g, "").trim())
@@ -38,93 +37,281 @@ const statusConfig = {
 const fmt = (val, type) => {
   const n = parseFloat(val);
   if (isNaN(n)) return val;
-  if (["Revenue", "Cumulative", "Impressions"].includes(type))
-    return n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1000 ? (n / 1000).toFixed(0) + "K" : n;
+  if (["Revenue", "Cumulative", "Impressions", "Volume"].includes(type))
+    return n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1000 ? (n/1000).toFixed(0)+"K" : n;
   return n;
 };
 
+// ─── SPARKLINE SVG ────────────────────────────────────────────────────────────
+function Sparkline({ data, color, target, width = 340, height = 120 }) {
+  if (!data || data.length === 0) return (
+    <div style={{ height, display:"flex", alignItems:"center", justifyContent:"center", color:"#334155", fontSize:12 }}>
+      Aucun historique disponible
+    </div>
+  );
+
+  const values = data.map(d => parseFloat(d.value) || 0);
+  const weeks  = data.map(d => d.week);
+  const tgt    = parseFloat(target) || 0;
+  const allVals = tgt > 0 ? [...values, tgt] : values;
+  const minV = Math.min(...allVals) * 0.9;
+  const maxV = Math.max(...allVals) * 1.1 || 1;
+
+  const pad = { top: 12, right: 16, bottom: 28, left: 36 };
+  const W = width  - pad.left - pad.right;
+  const H = height - pad.top  - pad.bottom;
+
+  const xScale = (i) => pad.left + (i / Math.max(values.length - 1, 1)) * W;
+  const yScale = (v) => pad.top  + H - ((v - minV) / (maxV - minV)) * H;
+
+  const points = values.map((v, i) => `${xScale(i)},${yScale(v)}`).join(" ");
+  const areaPoints = [
+    `${xScale(0)},${pad.top + H}`,
+    ...values.map((v, i) => `${xScale(i)},${yScale(v)}`),
+    `${xScale(values.length - 1)},${pad.top + H}`,
+  ].join(" ");
+
+  const targetY = tgt > 0 ? yScale(tgt) : null;
+
+  const [tooltip, setTooltip] = useState(null);
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${width} ${height}`} style={{ overflow:"visible" }}
+      onMouseLeave={() => setTooltip(null)}>
+      <defs>
+        <linearGradient id={`grad-${color.replace("#","")}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.25"/>
+          <stop offset="100%" stopColor={color} stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+
+      {/* Grid lines */}
+      {[0, 0.25, 0.5, 0.75, 1].map(t => {
+        const y = pad.top + t * H;
+        const v = maxV - t * (maxV - minV);
+        return (
+          <g key={t}>
+            <line x1={pad.left} y1={y} x2={pad.left + W} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
+            <text x={pad.left - 4} y={y + 4} fontSize="8" fill="#334155" textAnchor="end">
+              {v >= 1000 ? (v/1000).toFixed(0)+"K" : Math.round(v)}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* Target line */}
+      {targetY && (
+        <>
+          <line x1={pad.left} y1={targetY} x2={pad.left + W} y2={targetY}
+            stroke="#34d399" strokeWidth="1" strokeDasharray="4 3" opacity="0.6"/>
+          <text x={pad.left + W + 4} y={targetY + 4} fontSize="8" fill="#34d399">cible</text>
+        </>
+      )}
+
+      {/* Area */}
+      <polygon points={areaPoints} fill={`url(#grad-${color.replace("#","")})`}/>
+
+      {/* Line */}
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
+
+      {/* Dots + hover zones */}
+      {values.map((v, i) => (
+        <g key={i}
+          onMouseEnter={() => setTooltip({ x: xScale(i), y: yScale(v), v, w: weeks[i] })}
+          style={{ cursor: "crosshair" }}>
+          <circle cx={xScale(i)} cy={yScale(v)} r="8" fill="transparent"/>
+          <circle cx={xScale(i)} cy={yScale(v)} r={tooltip?.w === weeks[i] ? 4 : 3}
+            fill={color} stroke="#060d18" strokeWidth="1.5"/>
+        </g>
+      ))}
+
+      {/* Tooltip */}
+      {tooltip && (
+        <g>
+          <rect x={tooltip.x - 28} y={tooltip.y - 28} width={56} height={20} rx={4}
+            fill="#0f1f35" stroke={color} strokeWidth="0.5"/>
+          <text x={tooltip.x} y={tooltip.y - 14} fontSize="9" fill={color} textAnchor="middle" fontWeight="700">
+            {tooltip.v >= 1000 ? (tooltip.v/1000).toFixed(1)+"K" : tooltip.v}
+          </text>
+        </g>
+      )}
+
+      {/* X axis labels */}
+      {weeks.map((w, i) => (
+        (i === 0 || i === weeks.length - 1 || (weeks.length <= 6)) && (
+          <text key={i} x={xScale(i)} y={height - 4} fontSize="8" fill="#334155" textAnchor="middle">{w}</text>
+        )
+      ))}
+    </svg>
+  );
+}
+
+// ─── KPI MODAL ────────────────────────────────────────────────────────────────
+function KpiModal({ kpi, history, onClose }) {
+  const color  = getColor(kpi.dept);
+  const status = statusConfig[kpi.status] || statusConfig["Not Started"];
+  const pct    = Math.round(Math.min(parseFloat(kpi.progress_pct || 0) * 100, 100));
+  const kpiHistory = history.filter(h => String(h.kpi_id) === String(kpi.id))
+    .sort((a, b) => a.week.localeCompare(b.week));
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div onClick={onClose}
+      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", backdropFilter:"blur(6px)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background:"#0a1628", border:`1px solid ${color}33`, borderRadius:20, padding:28, width:"100%", maxWidth:480, position:"relative", boxShadow:`0 24px 80px ${color}22` }}>
+
+        {/* Close */}
+        <button onClick={onClose}
+          style={{ position:"absolute", top:16, right:16, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, width:28, height:28, cursor:"pointer", color:"#64748b", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"inherit" }}>
+          ✕
+        </button>
+
+        {/* Header */}
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, fontWeight:700, letterSpacing:"0.1em", color, textTransform:"uppercase", marginBottom:6 }}>
+            {kpi.dept} · {kpi.type}
+          </div>
+          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:18, fontWeight:700, color:"#f8fafc", lineHeight:1.3, marginBottom:12 }}>
+            {kpi.name}
+          </div>
+
+          {/* Progress bar */}
+          <div style={{ height:6, background:"rgba(255,255,255,0.05)", borderRadius:6, overflow:"hidden", marginBottom:8 }}>
+            <div style={{ width:`${pct}%`, height:"100%", background:`linear-gradient(90deg,${color},${color}aa)`, borderRadius:6, transition:"width 0.8s ease" }}/>
+          </div>
+
+          {/* Stats row */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ fontSize:12, color:"#94a3b8" }}>
+              <span style={{ color:"#e2e8f0", fontWeight:600, fontSize:16 }}>{fmt(kpi.current, kpi.type)}</span>
+              <span> / {fmt(kpi.target, kpi.type)}</span>
+            </div>
+            <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+              <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:22, fontWeight:700, color }}>{pct}%</span>
+              <div style={{ fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:20, color:status.color, background:status.bg }}>
+                {status.label}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div style={{ height:1, background:"rgba(255,255,255,0.06)", marginBottom:20 }}/>
+
+        {/* Chart */}
+        <div style={{ marginBottom:8 }}>
+          <div style={{ fontSize:11, color:"#475569", letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:12 }}>
+            Évolution hebdomadaire
+          </div>
+          <Sparkline data={kpiHistory} color={color} target={kpi.target} width={420} height={130}/>
+        </div>
+
+        {kpiHistory.length === 0 && (
+          <div style={{ fontSize:11, color:"#334155", textAlign:"center", marginTop:8 }}>
+            💡 Ajoutez des données dans l'onglet <strong style={{color:"#475569"}}>Weekly_Snapshot</strong> de votre Google Sheet
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── RADIAL PROGRESS ──────────────────────────────────────────────────────────
 function RadialProgress({ pct, color, size = 52 }) {
-  const r = size / 2 - 6, circ = 2 * Math.PI * r;
-  const dash = (Math.min(pct, 100) / 100) * circ;
+  const r = size/2 - 6, circ = 2*Math.PI*r;
+  const dash = (Math.min(pct, 100)/100)*circ;
   return (
-    <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+    <svg width={size} height={size} style={{ transform:"rotate(-90deg)" }}>
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="5"/>
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="5"
         strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
-        style={{ transition: "stroke-dasharray 0.8s cubic-bezier(0.4,0,0.2,1)" }}/>
+        style={{ transition:"stroke-dasharray 0.8s cubic-bezier(0.4,0,0.2,1)" }}/>
     </svg>
   );
 }
 
 // ─── KPI CARD ─────────────────────────────────────────────────────────────────
-function KpiCard({ kpi }) {
+function KpiCard({ kpi, history, onClick }) {
   const [hovered, setHovered] = useState(false);
   const color  = getColor(kpi.dept);
   const status = statusConfig[kpi.status] || statusConfig["Not Started"];
   const pct    = Math.round(Math.min(parseFloat(kpi.progress_pct || 0) * 100, 100));
+  const hasHistory = history.filter(h => String(h.kpi_id) === String(kpi.id)).length > 0;
 
   return (
-    <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         background: hovered ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)",
-        border: `1px solid ${hovered ? color + "55" : "rgba(255,255,255,0.07)"}`,
-        borderRadius: 16, padding: "18px 20px", transition: "all 0.25s ease",
+        border: `1px solid ${hovered ? color+"55" : "rgba(255,255,255,0.07)"}`,
+        borderRadius:16, padding:"18px 20px", transition:"all 0.25s ease",
         transform: hovered ? "translateY(-2px)" : "translateY(0)",
         boxShadow: hovered ? `0 8px 32px ${color}22` : "none",
-        display: "flex", flexDirection: "column", gap: 10,
-        position: "relative", overflow: "hidden",
+        display:"flex", flexDirection:"column", gap:10,
+        position:"relative", overflow:"hidden", cursor:"pointer",
       }}>
       {/* progress bar top */}
-      <div style={{ position: "absolute", top: 0, left: 0, width: `${pct}%`, height: 2, background: color, borderRadius: "0 2px 0 0", transition: "width 0.8s ease" }}/>
-      
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", color, textTransform: "uppercase", marginBottom: 4 }}>
+      <div style={{ position:"absolute", top:0, left:0, width:`${pct}%`, height:2, background:color, borderRadius:"0 2px 0 0", transition:"width 0.8s ease" }}/>
+
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:11, fontWeight:700, letterSpacing:"0.1em", color, textTransform:"uppercase", marginBottom:4 }}>
             {kpi.dept} · {kpi.type}
           </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#e2e8f0", lineHeight: 1.3 }}>{kpi.name}</div>
+          <div style={{ fontSize:14, fontWeight:600, color:"#e2e8f0", lineHeight:1.3 }}>{kpi.name}</div>
         </div>
-        <div style={{ position: "relative", flexShrink: 0 }}>
+        <div style={{ position:"relative", flexShrink:0 }}>
           <RadialProgress pct={pct} color={color}/>
-          <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 10, fontWeight: 700, color }}>
+          <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)", fontSize:10, fontWeight:700, color }}>
             {pct}%
           </div>
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontSize: 11, color: "#94a3b8" }}>
-          <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{fmt(kpi.current, kpi.type)}</span>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div style={{ fontSize:11, color:"#94a3b8" }}>
+          <span style={{ color:"#e2e8f0", fontWeight:600 }}>{fmt(kpi.current, kpi.type)}</span>
           <span> / {fmt(kpi.target, kpi.type)}</span>
         </div>
-        <div style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 20, color: status.color, background: status.bg, letterSpacing: "0.04em" }}>
-          {status.label}
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          {hasHistory && (
+            <div style={{ fontSize:9, color:color+"99", letterSpacing:"0.05em" }}>📈 historique</div>
+          )}
+          <div style={{ fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:20, color:status.color, background:status.bg, letterSpacing:"0.04em" }}>
+            {status.label}
+          </div>
         </div>
       </div>
-
-
     </div>
   );
 }
 
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [kpis,     setKpis]     = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState(null);
-  const [filter,   setFilter]   = useState("All");
-  const [lastSync, setLastSync] = useState(null);
+  const [kpis,      setKpis]      = useState([]);
+  const [history,   setHistory]   = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState(null);
+  const [filter,    setFilter]    = useState("All");
+  const [lastSync,  setLastSync]  = useState(null);
+  const [selected,  setSelected]  = useState(null);
 
   const fetchData = async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(csvUrl(GID_MASTER));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const text = await res.text();
-      const rows = parseCsv(text);
-
-      const mapped = rows.map(r => ({
+      // Fetch KPI Master
+      const resMaster = await fetch(csvUrl(GID_MASTER));
+      if (!resMaster.ok) throw new Error(`HTTP ${resMaster.status}`);
+      const masterRows = parseCsv(await resMaster.text());
+      const mapped = masterRows.map(r => ({
         id:           r["KPI_ID"]        || r[Object.keys(r)[0]],
         name:         r["KPI_Name"]      || r["KPI_name"]  || "",
         dept:         r["Department"]    || r["Dept"]       || "",
@@ -135,8 +322,22 @@ export default function Dashboard() {
         status:       r["Status"]        || "Not Started",
         weight:       r["Weight"]        || 0,
       })).filter(k => k.name);
-
       setKpis(mapped);
+
+      // Fetch Weekly_Snapshot (silently fails if empty/missing)
+      try {
+        const resHist = await fetch(csvUrl(GID_HISTORY));
+        if (resHist.ok) {
+          const histRows = parseCsv(await resHist.text());
+          const mappedHist = histRows.map(r => ({
+            week:   r["Week"]     || r["week"]     || "",
+            kpi_id: r["KPI_ID"]   || r["kpi_id"]   || "",
+            value:  r["Value"]    || r["value"]    || 0,
+          })).filter(h => h.week && h.kpi_id);
+          setHistory(mappedHist);
+        }
+      } catch (_) {}
+
       setLastSync(new Date().toLocaleTimeString("fr-FR"));
     } catch (e) {
       setError(e.message);
@@ -145,14 +346,13 @@ export default function Dashboard() {
     }
   };
 
-  // Auto-refresh toutes les 5 minutes
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
-  const depts   = ["All", ...Object.keys(deptColors)];
+  const depts    = ["All", ...Object.keys(deptColors)];
   const filtered = filter === "All" ? kpis : kpis.filter(k => k.dept === filter);
 
   const totalWeight = kpis.reduce((s, k) => s + parseFloat(k.weight || 0), 0);
@@ -172,157 +372,147 @@ export default function Dashboard() {
     return { dept, score: Math.round(score * 100), count: dk.length, color: deptColors[dept] };
   });
 
-  const week = `S${Math.ceil((new Date() - new Date(new Date().getFullYear(), 0, 1)) / (7 * 86400000))}`;
+  const week = `S${Math.ceil((new Date() - new Date(new Date().getFullYear(), 0, 1)) / (7*86400000))}`;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#060d18", fontFamily: "'DM Mono','Courier New',monospace", color: "#e2e8f0", padding: "32px 24px" }}>
+    <div style={{ minHeight:"100vh", background:"#060d18", fontFamily:"'DM Mono','Courier New',monospace", color:"#e2e8f0", padding:"32px 24px" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Space+Grotesk:wght@400;600;700&display=swap');
-        * { box-sizing: border-box; margin: 0; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 4px; }
-        button { font-family: inherit; }
+        * { box-sizing:border-box; margin:0; }
+        ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:4px}
+        button{font-family:inherit}
       `}</style>
 
-      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+      {/* Modal */}
+      {selected && (
+        <KpiModal kpi={selected} history={history} onClose={() => setSelected(null)}/>
+      )}
 
-        {/* ── Header ── */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 32, flexWrap: "wrap", gap: 16 }}>
+      <div style={{ maxWidth:1200, margin:"0 auto" }}>
+
+        {/* Header */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom:32, flexWrap:"wrap", gap:16 }}>
           <div>
-            <div style={{ fontSize: 11, letterSpacing: "0.25em", color: "#00c2ff", textTransform: "uppercase", marginBottom: 6 }}>
-              iExec · Dashboard Stratégique
-            </div>
-            <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 28, fontWeight: 700, color: "#f8fafc", letterSpacing: "-0.02em" }}>
-              KPI Hebdomadaires
-            </h1>
+            <div style={{ fontSize:11, letterSpacing:"0.25em", color:"#00c2ff", textTransform:"uppercase", marginBottom:6 }}>iExec · Dashboard Stratégique</div>
+            <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:28, fontWeight:700, color:"#f8fafc", letterSpacing:"-0.02em" }}>KPI Hebdomadaires</h1>
           </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            {lastSync && (
-              <div style={{ fontSize: 11, color: "#475569" }}>🔄 Sync : {lastSync}</div>
-            )}
+          <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+            {lastSync && <div style={{ fontSize:11, color:"#475569" }}>🔄 Sync : {lastSync}</div>}
             <button onClick={fetchData} disabled={loading}
-              style={{ padding: "8px 16px", background: "rgba(0,194,255,0.08)", border: "1px solid rgba(0,194,255,0.2)", borderRadius: 10, fontSize: 12, color: "#00c2ff", fontWeight: 500, cursor: "pointer" }}>
+              style={{ padding:"8px 16px", background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:10, fontSize:12, color:"#00c2ff", fontWeight:500, cursor:"pointer" }}>
               {loading ? "⟳ Chargement..." : "⟳ Actualiser"}
             </button>
-            <div style={{ padding: "8px 16px", background: "rgba(0,194,255,0.08)", border: "1px solid rgba(0,194,255,0.2)", borderRadius: 10, fontSize: 12, color: "#00c2ff", fontWeight: 500 }}>
+            <div style={{ padding:"8px 16px", background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:10, fontSize:12, color:"#00c2ff", fontWeight:500 }}>
               📅 {week} · 2025
             </div>
           </div>
         </div>
 
-        {/* ── Error ── */}
+        {/* Error */}
         {error && (
-          <div style={{ background: "rgba(251,113,133,0.1)", border: "1px solid rgba(251,113,133,0.3)", borderRadius: 12, padding: "16px 20px", marginBottom: 24, fontSize: 12, color: "#fb7185" }}>
+          <div style={{ background:"rgba(251,113,133,0.1)", border:"1px solid rgba(251,113,133,0.3)", borderRadius:12, padding:"16px 20px", marginBottom:24, fontSize:12, color:"#fb7185" }}>
             <strong>⚠️ Impossible de charger les données :</strong> {error}
-            <div style={{ color: "#94a3b8", marginTop: 8 }}>
-              → Assurez-vous que le Google Sheet est partagé en <strong>lecture publique</strong> :<br/>
-              <em>Fichier → Partager → "Toute personne avec le lien" → Lecteur</em>
+            <div style={{ color:"#94a3b8", marginTop:8 }}>
+              → Fichier → Partager → "Toute personne avec le lien" → Lecteur
             </div>
           </div>
         )}
 
-        {/* ── Loading ── */}
+        {/* Loading */}
         {loading && !error && (
-          <div style={{ textAlign: "center", padding: "80px 0", color: "#475569" }}>
-            <div style={{ fontSize: 40, marginBottom: 16, animation: "spin 1s linear infinite" }}>⟳</div>
-            <div style={{ fontSize: 13 }}>Connexion à Google Sheets en cours...</div>
-            <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
+          <div style={{ textAlign:"center", padding:"80px 0", color:"#475569" }}>
+            <div style={{ fontSize:40, marginBottom:16, animation:"spin 1s linear infinite" }}>⟳</div>
+            <div style={{ fontSize:13 }}>Connexion à Google Sheets...</div>
+            <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
           </div>
         )}
 
-        {/* ── Data loaded ── */}
         {!loading && !error && kpis.length > 0 && (<>
 
           {/* Score Banner */}
-          <div style={{ background: "linear-gradient(135deg,rgba(0,194,255,0.08) 0%,rgba(10,24,46,0.9) 100%)", border: "1px solid rgba(0,194,255,0.2)", borderRadius: 20, padding: "28px 32px", marginBottom: 24, display: "flex", gap: 32, flexWrap: "wrap", alignItems: "center" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 11, letterSpacing: "0.15em", color: "#64748b", textTransform: "uppercase", marginBottom: 8 }}>Score d'exécution stratégique</div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 56, fontWeight: 700, color: "#00c2ff", lineHeight: 1 }}>
-                  {Math.round(totalScore * 100)}
-                </span>
-                <span style={{ fontSize: 24, color: "#00c2ff66" }}>/ 100</span>
+          <div style={{ background:"linear-gradient(135deg,rgba(0,194,255,0.08) 0%,rgba(10,24,46,0.9) 100%)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:20, padding:"28px 32px", marginBottom:24, display:"flex", gap:32, flexWrap:"wrap", alignItems:"center" }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:11, letterSpacing:"0.15em", color:"#64748b", textTransform:"uppercase", marginBottom:8 }}>Score d'exécution stratégique</div>
+              <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+                <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:56, fontWeight:700, color:"#00c2ff", lineHeight:1 }}>{Math.round(totalScore*100)}</span>
+                <span style={{ fontSize:24, color:"#00c2ff66" }}>/ 100</span>
               </div>
-              <div style={{ marginTop: 12, height: 6, background: "rgba(255,255,255,0.05)", borderRadius: 6, overflow: "hidden", maxWidth: 400 }}>
-                <div style={{ width: `${Math.round(totalScore * 100)}%`, height: "100%", background: "linear-gradient(90deg,#00c2ff,#38bdf8)", borderRadius: 6, transition: "width 1s ease" }}/>
+              <div style={{ marginTop:12, height:6, background:"rgba(255,255,255,0.05)", borderRadius:6, overflow:"hidden", maxWidth:400 }}>
+                <div style={{ width:`${Math.round(totalScore*100)}%`, height:"100%", background:"linear-gradient(90deg,#00c2ff,#38bdf8)", borderRadius:6, transition:"width 1s ease" }}/>
               </div>
             </div>
-            <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+            <div style={{ display:"flex", gap:24, flexWrap:"wrap" }}>
               {[
-                { label: "Complétés",   value: doneCount,                             color: "#34d399" },
-                { label: "En cours",    value: inProgCount,                           color: "#f59e0b" },
-                { label: "À démarrer", value: kpis.length - doneCount - inProgCount, color: "#64748b" },
-                { label: "Total KPIs", value: kpis.length,                           color: "#00c2ff" },
+                { label:"Complétés",   value:doneCount,                             color:"#34d399" },
+                { label:"En cours",    value:inProgCount,                           color:"#f59e0b" },
+                { label:"À démarrer", value:kpis.length-doneCount-inProgCount,     color:"#64748b" },
+                { label:"Total KPIs", value:kpis.length,                           color:"#00c2ff" },
               ].map(s => (
-                <div key={s.label} style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: s.color, fontFamily: "'Space Grotesk',sans-serif" }}>{s.value}</div>
-                  <div style={{ fontSize: 11, color: "#475569", marginTop: 2 }}>{s.label}</div>
+                <div key={s.label} style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:28, fontWeight:700, color:s.color, fontFamily:"'Space Grotesk',sans-serif" }}>{s.value}</div>
+                  <div style={{ fontSize:11, color:"#475569", marginTop:2 }}>{s.label}</div>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Dept Performance */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 24 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:12, marginBottom:24 }}>
             {deptStats.filter(d => d.count > 0).map(d => (
-              <div key={d.dept} onClick={() => setFilter(filter === d.dept ? "All" : d.dept)}
-                style={{ background: filter === d.dept ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)", border: `1px solid ${filter === d.dept ? d.color + "55" : "rgba(255,255,255,0.06)"}`, borderRadius: 12, padding: "14px 16px", cursor: "pointer", transition: "all 0.2s" }}>
-                <div style={{ fontSize: 10, color: d.color, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>{d.dept}</div>
-                <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 22, fontWeight: 700, color: "#f8fafc" }}>{d.score}%</div>
-                <div style={{ height: 3, background: "rgba(255,255,255,0.05)", borderRadius: 4, marginTop: 8, overflow: "hidden" }}>
-                  <div style={{ width: `${d.score}%`, height: "100%", background: d.color, borderRadius: 4 }}/>
+              <div key={d.dept} onClick={() => setFilter(filter===d.dept?"All":d.dept)}
+                style={{ background:filter===d.dept?"rgba(255,255,255,0.08)":"rgba(255,255,255,0.03)", border:`1px solid ${filter===d.dept?d.color+"55":"rgba(255,255,255,0.06)"}`, borderRadius:12, padding:"14px 16px", cursor:"pointer", transition:"all 0.2s" }}>
+                <div style={{ fontSize:10, color:d.color, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>{d.dept}</div>
+                <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:22, fontWeight:700, color:"#f8fafc" }}>{d.score}%</div>
+                <div style={{ height:3, background:"rgba(255,255,255,0.05)", borderRadius:4, marginTop:8, overflow:"hidden" }}>
+                  <div style={{ width:`${d.score}%`, height:"100%", background:d.color, borderRadius:4 }}/>
                 </div>
-                <div style={{ fontSize: 10, color: "#475569", marginTop: 6 }}>{d.count} KPI{d.count > 1 ? "s" : ""}</div>
+                <div style={{ fontSize:10, color:"#475569", marginTop:6 }}>{d.count} KPI{d.count>1?"s":""}</div>
               </div>
             ))}
           </div>
 
           {/* Filter tabs */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+          <div style={{ display:"flex", gap:8, marginBottom:8, flexWrap:"wrap" }}>
             {depts.map(d => (
               <button key={d} onClick={() => setFilter(d)}
-                style={{ padding: "6px 14px", borderRadius: 8, fontSize: 11, fontWeight: 600, border: `1px solid ${filter === d ? "#00c2ff" : "rgba(255,255,255,0.1)"}`, background: filter === d ? "rgba(0,194,255,0.15)" : "transparent", color: filter === d ? "#00c2ff" : "#64748b", cursor: "pointer", transition: "all 0.2s" }}>
+                style={{ padding:"6px 14px", borderRadius:8, fontSize:11, fontWeight:600, border:`1px solid ${filter===d?"#00c2ff":"rgba(255,255,255,0.1)"}`, background:filter===d?"rgba(0,194,255,0.15)":"transparent", color:filter===d?"#00c2ff":"#64748b", cursor:"pointer", transition:"all 0.2s" }}>
                 {d}
               </button>
             ))}
           </div>
+          <div style={{ fontSize:10, color:"#334155", marginBottom:20 }}>Cliquez sur une carte pour voir l'évolution</div>
 
-          {/* KPI Grid — grouped by dept in "All" view, flat otherwise */}
+          {/* KPI Grid */}
           {filter === "All" ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 32, marginBottom: 32 }}>
+            <div style={{ display:"flex", flexDirection:"column", gap:32, marginBottom:32 }}>
               {Object.keys(deptColors).map(dept => {
                 const deptKpis = kpis.filter(k => k.dept === dept);
                 if (deptKpis.length === 0) return null;
                 const color = deptColors[dept];
                 return (
                   <div key={dept}>
-                    {/* Dept separator */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                      <div style={{ width: 4, height: 20, background: color, borderRadius: 4 }}/>
-                      <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 13, fontWeight: 700, color, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                        {dept}
-                      </div>
-                      <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${color}33, transparent)` }}/>
-                      <div style={{ fontSize: 11, color: "#475569" }}>{deptKpis.length} KPI{deptKpis.length > 1 ? "s" : ""}</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+                      <div style={{ width:4, height:20, background:color, borderRadius:4 }}/>
+                      <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:13, fontWeight:700, color, letterSpacing:"0.08em", textTransform:"uppercase" }}>{dept}</div>
+                      <div style={{ flex:1, height:1, background:`linear-gradient(90deg,${color}33,transparent)` }}/>
+                      <div style={{ fontSize:11, color:"#475569" }}>{deptKpis.length} KPI{deptKpis.length>1?"s":""}</div>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14 }}>
-                      {deptKpis.map(kpi => <KpiCard key={kpi.id} kpi={kpi}/>)}
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14 }}>
+                      {deptKpis.map(kpi => <KpiCard key={kpi.id} kpi={kpi} history={history} onClick={() => setSelected(kpi)}/>)}
                     </div>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14, marginBottom: 32 }}>
-              {filtered.map(kpi => <KpiCard key={kpi.id} kpi={kpi}/>)}
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14, marginBottom:32 }}>
+              {filtered.map(kpi => <KpiCard key={kpi.id} kpi={kpi} history={history} onClick={() => setSelected(kpi)}/>)}
             </div>
           )}
 
         </>)}
 
-        {/* Footer */}
-        <div style={{ textAlign: "center", marginTop: 24, fontSize: 10, color: "#1e3a5f", letterSpacing: "0.1em" }}>
+        <div style={{ textAlign:"center", marginTop:24, fontSize:10, color:"#1e3a5f", letterSpacing:"0.1em" }}>
           IEXEC · STRATEGIC KPI DASHBOARD · {week} 2025 · DONNÉES LIVE GOOGLE SHEETS · AUTO-REFRESH 5MIN
         </div>
       </div>
