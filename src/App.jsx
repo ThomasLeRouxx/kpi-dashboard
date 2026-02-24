@@ -8,7 +8,6 @@ const GID_MASTER = "70523329";
 
 const csvUrl = (gid) =>
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`;
- // 'https://docs.google.com/spreadsheets/d/1WVO-QNNA7ldjAdi7dMoUUCwloBta6BeFVApaStdo0NU/edit?usp=sharing';
 
 // ─── CSV PARSER ────────────────────────────────────────────────────────────────
 function parseCsv(text) {
@@ -104,13 +103,7 @@ function KpiCard({ kpi }) {
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <div style={{ fontSize: 10, color: "#475569" }}>Poids stratégique</div>
-        <div style={{ flex: 1, height: 3, background: "rgba(255,255,255,0.05)", borderRadius: 4, overflow: "hidden" }}>
-          <div style={{ width: `${(parseFloat(kpi.weight || 0) / 15) * 100}%`, height: "100%", background: color + "88", borderRadius: 4 }}/>
-        </div>
-        <div style={{ fontSize: 10, color, fontWeight: 700 }}>{kpi.weight}%</div>
-      </div>
+
     </div>
   );
 }
@@ -295,10 +288,36 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {/* KPI Grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14, marginBottom: 32 }}>
-            {filtered.map(kpi => <KpiCard key={kpi.id} kpi={kpi}/>)}
-          </div>
+          {/* KPI Grid — grouped by dept in "All" view, flat otherwise */}
+          {filter === "All" ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 32, marginBottom: 32 }}>
+              {Object.keys(deptColors).map(dept => {
+                const deptKpis = kpis.filter(k => k.dept === dept);
+                if (deptKpis.length === 0) return null;
+                const color = deptColors[dept];
+                return (
+                  <div key={dept}>
+                    {/* Dept separator */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                      <div style={{ width: 4, height: 20, background: color, borderRadius: 4 }}/>
+                      <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 13, fontWeight: 700, color, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                        {dept}
+                      </div>
+                      <div style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${color}33, transparent)` }}/>
+                      <div style={{ fontSize: 11, color: "#475569" }}>{deptKpis.length} KPI{deptKpis.length > 1 ? "s" : ""}</div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14 }}>
+                      {deptKpis.map(kpi => <KpiCard key={kpi.id} kpi={kpi}/>)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14, marginBottom: 32 }}>
+              {filtered.map(kpi => <KpiCard key={kpi.id} kpi={kpi}/>)}
+            </div>
+          )}
 
         </>)}
 
@@ -309,5 +328,4 @@ export default function Dashboard() {
       </div>
     </div>
   );
-
 }
