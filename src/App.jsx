@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 
 // ─── CONFIG GOOGLE SHEETS ─────────────────────────────────────────────────────
 const SHEET_ID    = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
-const GID_MASTER  = "377128355";
-const GID_HISTORY = "1449053835";
+const GID_MASTER  = "377128355";   // onglet KPI_Master
+const GID_HISTORY = "1449053835";    // ← Cliquez sur l'onglet Weekly_Snapshot dans Google Sheets → copiez le gid= dans l'URL
 
 const csvUrl = (gid) =>
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`;
@@ -19,6 +19,12 @@ function parseCsv(text) {
     headers.forEach((h, i) => (obj[h] = row[i] ?? ""));
     return obj;
   }).filter(r => r[headers[0]] !== "");
+}
+
+// Lecture flexible d'une valeur selon plusieurs noms de colonnes possibles
+function col(r, ...keys) {
+  for (const k of keys) if (r[k] !== undefined && r[k] !== "") return r[k];
+  return "";
 }
 
 // ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
@@ -336,17 +342,23 @@ export default function Dashboard() {
       const resMaster = await fetch(csvUrl(GID_MASTER));
       if (!resMaster.ok) throw new Error(`HTTP ${resMaster.status}`);
       const masterRows = parseCsv(await resMaster.text());
-      const baseKpis = masterRows.map(r => ({
-        id:           r["KPI_ID"]        || r[Object.keys(r)[0]],
-        name:         r["KPI_Name"]      || r["KPI_name"]  || "",
-        dept:         r["Department"]    || r["Dept"]       || "",
-        type:         r["Type"]          || "",
-        target:       r["Target"]        || 0,
-        current:      r["Current_Value"] || r["Current"]   || 0,
-        progress_pct: r["Progress_%"]    || r["Progress"]  || 0,
-        status:       r["Status"]        || "Not Started",
-        weight:       r["Weight"]        || 0,
-      })).filter(k => k.name);
+      const baseKpis = masterRows
+        // Ignorer les lignes de sous-header (ex: "← Liste déroulante") et les lignes vides
+        .filter(r => {
+          const id = col(r, "ID", "KPI_ID", "KPI ID");
+          return id !== "" && !isNaN(parseFloat(id));
+        })
+        .map(r => ({
+          id:           col(r, "ID", "KPI_ID", "KPI ID"),
+          name:         col(r, "KPI", "KPI_Name", "KPI_name", "KPI Name"),
+          dept:         col(r, "Département", "Department", "Dept"),
+          type:         col(r, "Type"),
+          target:       col(r, "Target") || 0,
+          current:      col(r, "Valeur actuelle", "Current_Value", "Current") || 0,
+          progress_pct: col(r, "Progression", "Progress_%", "Progress") || 0,
+          status:       col(r, "Statut", "Status") || "Not Started",
+          weight:       col(r, "Poids", "Weight") || 0,
+        })).filter(k => k.name);
 
       // Fetch history, then override current + progress avec la dernière valeur
       let histData = [];
@@ -354,11 +366,17 @@ export default function Dashboard() {
         const resHist = await fetch(csvUrl(GID_HISTORY));
         if (resHist.ok) {
           const histRows = parseCsv(await resHist.text());
-          histData = histRows.map(r => ({
-            week:   r["Week"]   || r["week"]   || "",
-            kpi_id: r["KPI_ID"] || r["kpi_id"] || "",
-            value:  r["Value"]  || r["value"]  || 0,
-          })).filter(h => h.week && h.kpi_id);
+          histData = histRows
+            // Ignorer ligne de sous-header ("← Choisir dans la liste"...)
+            .filter(r => {
+              const week = col(r, "Semaine", "Week", "week");
+              return week !== "" && week.match(/^\d{4}-W\d{2}$/);
+            })
+            .map(r => ({
+              week:   col(r, "Semaine", "Week", "week"),
+              kpi_id: col(r, "ID (auto)", "KPI_ID", "kpi_id", "ID"),
+              value:  col(r, "Valeur", "Value", "value") || 0,
+            })).filter(h => h.week && h.kpi_id && !isNaN(parseFloat(h.kpi_id)));
           setHistory(histData);
         }
       } catch (_) {}
@@ -609,4 +627,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
