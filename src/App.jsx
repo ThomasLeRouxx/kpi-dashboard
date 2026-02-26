@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 
 // ─── CONFIG GOOGLE SHEETS ─────────────────────────────────────────────────────
-const SHEET_ID    = "1WVO-QNNA7ldjAdi7dMoUUCwloBta6BeFVApaStdo0NU";
-const GID_MASTER  = "70523329";
-const GID_HISTORY = "1595720154";
+const SHEET_ID    = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
+const GID_MASTER  = "377128355";
+const GID_HISTORY = "1449053835";
 
 const csvUrl = (gid) =>
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`;
@@ -609,3 +609,4 @@ export default function Dashboard() {
     </div>
   );
 }
+
