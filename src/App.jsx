@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 // ─── CONFIG GOOGLE SHEETS ─────────────────────────────────────────────────────
 const SHEET_ID    = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
 const GID_MASTER  = "377128355";   // onglet KPI_Master
-const GID_HISTORY = "1449053835";    // ← Cliquez sur l'onglet Weekly_Snapshot dans Google Sheets → copiez le gid= dans l'URL
+const GID_HISTORY = "1449053835";  // onglet Weekly_Snapshot
 
 const csvUrl = (gid) =>
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`;
@@ -21,7 +21,6 @@ function parseCsv(text) {
   }).filter(r => r[headers[0]] !== "");
 }
 
-// Lecture flexible d'une valeur selon plusieurs noms de colonnes possibles
 function col(r, ...keys) {
   for (const k of keys) if (r[k] !== undefined && r[k] !== "") return r[k];
   return "";
@@ -106,7 +105,6 @@ function Sparkline({ data, color, target }) {
           </linearGradient>
         </defs>
 
-        {/* Horizontal grid */}
         {[0,0.25,0.5,0.75,1].map(t => {
           const y = pad.top + t*iH;
           const v = maxV - t*(maxV-minV);
@@ -120,7 +118,6 @@ function Sparkline({ data, color, target }) {
           );
         })}
 
-        {/* Target line */}
         {targetY && (
           <g>
             <line x1={pad.left} y1={targetY} x2={pad.left+iW} y2={targetY}
@@ -129,11 +126,9 @@ function Sparkline({ data, color, target }) {
           </g>
         )}
 
-        {/* Area + line */}
         <polygon points={areaPts} fill={`url(#${gradId})`}/>
         <polyline points={linePts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
 
-        {/* Dots */}
         {values.map((v,i) => (
           <circle key={i} cx={xS(i)} cy={yS(v)}
             r={tooltip===i ? 5 : 3.5}
@@ -144,7 +139,6 @@ function Sparkline({ data, color, target }) {
           />
         ))}
 
-        {/* Tooltip */}
         {tooltip !== null && (
           <g>
             <line x1={xS(tooltip)} y1={pad.top} x2={xS(tooltip)} y2={pad.top+iH}
@@ -158,7 +152,6 @@ function Sparkline({ data, color, target }) {
           </g>
         )}
 
-        {/* X labels */}
         {weeks.map((w,i) => {
           const show = values.length <= 6 || i===0 || i===weeks.length-1 || i%Math.ceil(weeks.length/5)===0;
           return show ? (
@@ -167,7 +160,6 @@ function Sparkline({ data, color, target }) {
         })}
       </svg>
 
-      {/* Week label on hover */}
       {tooltip !== null && (
         <div style={{ position:"absolute", bottom:28, left:0, right:0, textAlign:"center", fontSize:9, color:"#475569" }}>
           {weeks[tooltip]}
@@ -200,14 +192,12 @@ function KpiModal({ kpi, history, onClose }) {
         onClick={e => e.stopPropagation()}
         style={{ background:"#0a1628", border:`1px solid ${color}44`, borderRadius:20, padding:28, width:"100%", maxWidth:500, position:"relative", boxShadow:`0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px ${color}22` }}>
 
-        {/* Close btn */}
         <button
           onClick={onClose}
           style={{ position:"absolute", top:14, right:14, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, width:30, height:30, cursor:"pointer", color:"#94a3b8", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"inherit" }}>
           ✕
         </button>
 
-        {/* Dept + name */}
         <div style={{ marginBottom:20 }}>
           <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.12em", color, textTransform:"uppercase", marginBottom:6 }}>
             {kpi.dept} · {kpi.type}
@@ -216,12 +206,10 @@ function KpiModal({ kpi, history, onClose }) {
             {kpi.name}
           </div>
 
-          {/* Progress bar */}
           <div style={{ height:5, background:"rgba(255,255,255,0.05)", borderRadius:6, overflow:"hidden", marginBottom:10 }}>
             <div style={{ width:`${pct}%`, height:"100%", background:`linear-gradient(90deg,${color},${color}88)`, borderRadius:6 }}/>
           </div>
 
-          {/* Stats */}
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
             <div style={{ fontSize:12, color:"#94a3b8" }}>
               {kpi.displayLabel ? (
@@ -245,10 +233,8 @@ function KpiModal({ kpi, history, onClose }) {
           </div>
         </div>
 
-        {/* Divider */}
         <div style={{ height:1, background:"rgba(255,255,255,0.06)", marginBottom:18 }}/>
 
-        {/* Chart */}
         <div>
           <div style={{ fontSize:10, color:"#475569", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:14 }}>
             📈 Évolution hebdomadaire
@@ -343,7 +329,6 @@ export default function Dashboard() {
       if (!resMaster.ok) throw new Error(`HTTP ${resMaster.status}`);
       const masterRows = parseCsv(await resMaster.text());
       const baseKpis = masterRows
-        // Ignorer les lignes de sous-header (ex: "← Liste déroulante") et les lignes vides
         .filter(r => {
           const id = col(r, "ID", "KPI_ID", "KPI ID");
           return id !== "" && !isNaN(parseFloat(id));
@@ -354,20 +339,20 @@ export default function Dashboard() {
           dept:         col(r, "Département", "Department", "Dept"),
           type:         col(r, "Type"),
           target:       col(r, "Target") || 0,
+          // ✅ Lecture dynamique de la Baseline depuis le sheet
+          baseline:     col(r, "Baseline") || 0,
           current:      col(r, "Valeur actuelle", "Current_Value", "Current") || 0,
           progress_pct: col(r, "Progression", "Progress_%", "Progress") || 0,
           status:       col(r, "Statut", "Status") || "Not Started",
           weight:       col(r, "Poids", "Weight") || 0,
         })).filter(k => k.name);
 
-      // Fetch history, then override current + progress avec la dernière valeur
       let histData = [];
       try {
         const resHist = await fetch(csvUrl(GID_HISTORY));
         if (resHist.ok) {
           const histRows = parseCsv(await resHist.text());
           histData = histRows
-            // Ignorer ligne de sous-header ("← Choisir dans la liste"...)
             .filter(r => {
               const week = col(r, "Semaine", "Week", "week");
               return week !== "" && week.match(/^\d{4}-W\d{2}$/);
@@ -381,7 +366,6 @@ export default function Dashboard() {
         }
       } catch (_) {}
 
-      // Pour chaque KPI, trouver la dernière entrée + tout l'historique trié
       const latestByKpi = {};
       const allByKpi    = {};
       histData.forEach(h => {
@@ -392,14 +376,6 @@ export default function Dashboard() {
         allByKpi[kid].push(h);
       });
 
-      // Nombre de semaines écoulées depuis le 1er jan (S1 → semaine courante)
-      const currentWeekNum = Math.ceil((new Date() - new Date(new Date().getFullYear(), 0, 1)) / (7 * 86400000));
-
-      // ── Logiques spéciales par KPI_ID ──────────────────────────────────────
-      // KPI 9  — Mindshare : % semaines ≥ 2.61% parmi les semaines renseignées
-      // KPI 10 — TEE Rank  : % semaines avec ranking = 1
-      // KPI 12 — LinkedIn  : progression depuis baseline 5000 vers 6000
-
       setKpis(baseKpis.map(k => {
         const kid     = String(k.id).trim();
         const latest  = latestByKpi[kid];
@@ -409,14 +385,14 @@ export default function Dashboard() {
 
         // ── KPI 9 : Privacy Mindshare ≥ 2.61% ──
         if (kid === "9") {
-          const THRESHOLD  = 2.61;
+          const THRESHOLD  = parseFloat(k.target) || 2.61;
           const weeksAbove = entries.filter(e => parseFloat(e.value) >= THRESHOLD).length;
           const totalWeeks = Math.max(entries.length, 1);
           const progress_pct = weeksAbove / totalWeeks;
-          const current   = Math.round(progress_pct * 100); // affiche le % de temps
+          const current   = Math.round(progress_pct * 100);
           const status    = progress_pct >= 1 ? "Done" : entries.length > 0 ? "In Progress" : "Not Started";
           return { ...k, current, progress_pct, status,
-            displayLabel: `${weeksAbove}/${totalWeeks} sem. ≥ 2.61%`,
+            displayLabel: `${weeksAbove}/${totalWeeks} sem. ≥ ${THRESHOLD}%`,
             latestRaw: parseFloat(latest.value).toFixed(2) + "%" };
         }
 
@@ -432,19 +408,22 @@ export default function Dashboard() {
             latestRaw: `Rank #${parseFloat(latest.value)}` };
         }
 
-        // ── KPI 12 : LinkedIn followers (baseline 5000 → 6000) ──
+        // ── KPI 12 : Followers (baseline dynamique depuis le sheet) ──
         if (kid === "12") {
-          const BASELINE = 5000;
-          const TARGET   = 6000;
+          // ✅ Utilise la Baseline du sheet au lieu d'une valeur hardcodée
+          const BASELINE = parseFloat(k.baseline) || 0;
+          const TARGET   = parseFloat(k.target)   || 1;
           const current  = parseFloat(latest.value) || BASELINE;
-          const progress_pct = Math.min((current - BASELINE) / (TARGET - BASELINE), 1);
+          const progress_pct = BASELINE < TARGET
+            ? Math.min((current - BASELINE) / (TARGET - BASELINE), 1)
+            : 0;
           const status   = progress_pct >= 1 ? "Done" : current > BASELINE ? "In Progress" : "Not Started";
           return { ...k, current, progress_pct, status,
-            displayLabel: `+${current - BASELINE} followers`,
-            latestRaw: `${current} followers` };
+            displayLabel: `+${(current - BASELINE).toLocaleString("fr-FR")} followers`,
+            latestRaw: `${current.toLocaleString("fr-FR")} followers` };
         }
 
-        // ── Logique standard pour tous les autres KPIs ──
+        // ── Logique standard ──
         const current = parseFloat(latest.value) || 0;
         const target  = parseFloat(k.target) || 0;
         const progress_pct = target > 0 ? Math.min(current / target, 1) : 0;
@@ -495,12 +474,10 @@ export default function Dashboard() {
         button{font-family:inherit}
       `}</style>
 
-      {/* Modal */}
       {modal && <KpiModal kpi={modal} history={history} onClose={() => setModal(null)}/>}
 
       <div style={{ maxWidth:1200, margin:"0 auto" }}>
 
-        {/* Header */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom:32, flexWrap:"wrap", gap:16 }}>
           <div>
             <div style={{ fontSize:11, letterSpacing:"0.25em", color:"#00c2ff", textTransform:"uppercase", marginBottom:6 }}>iExec · Dashboard Stratégique</div>
@@ -513,12 +490,11 @@ export default function Dashboard() {
               {loading ? "⟳ Chargement..." : "⟳ Actualiser"}
             </button>
             <div style={{ padding:"8px 16px", background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:10, fontSize:12, color:"#00c2ff", fontWeight:500 }}>
-              📅 {week} · 2025
+              📅 {week} · 2026
             </div>
           </div>
         </div>
 
-        {/* Error */}
         {error && (
           <div style={{ background:"rgba(251,113,133,0.1)", border:"1px solid rgba(251,113,133,0.3)", borderRadius:12, padding:"16px 20px", marginBottom:24, fontSize:12, color:"#fb7185" }}>
             <strong>⚠️ Erreur :</strong> {error}
@@ -526,7 +502,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Loading */}
         {loading && !error && (
           <div style={{ textAlign:"center", padding:"80px 0", color:"#475569" }}>
             <div style={{ fontSize:40, marginBottom:16, animation:"spin 1s linear infinite" }}>⟳</div>
@@ -537,7 +512,6 @@ export default function Dashboard() {
 
         {!loading && !error && kpis.length > 0 && (<>
 
-          {/* Score Banner */}
           <div style={{ background:"linear-gradient(135deg,rgba(0,194,255,0.08),rgba(10,24,46,0.9))", border:"1px solid rgba(0,194,255,0.2)", borderRadius:20, padding:"28px 32px", marginBottom:24, display:"flex", gap:32, flexWrap:"wrap", alignItems:"center" }}>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:11, letterSpacing:"0.15em", color:"#64748b", textTransform:"uppercase", marginBottom:8 }}>Score d'exécution stratégique</div>
@@ -551,10 +525,10 @@ export default function Dashboard() {
             </div>
             <div style={{ display:"flex", gap:24, flexWrap:"wrap" }}>
               {[
-                {label:"Complétés",  value:doneCount,                            color:"#34d399"},
-                {label:"En cours",   value:inProgCount,                          color:"#f59e0b"},
-                {label:"À démarrer",value:kpis.length-doneCount-inProgCount,    color:"#64748b"},
-                {label:"Total KPIs",value:kpis.length,                          color:"#00c2ff"},
+                {label:"Complétés",   value:doneCount,                          color:"#34d399"},
+                {label:"En cours",    value:inProgCount,                        color:"#f59e0b"},
+                {label:"À démarrer", value:kpis.length-doneCount-inProgCount,  color:"#64748b"},
+                {label:"Total KPIs", value:kpis.length,                        color:"#00c2ff"},
               ].map(s => (
                 <div key={s.label} style={{ textAlign:"center" }}>
                   <div style={{ fontSize:28, fontWeight:700, color:s.color, fontFamily:"'Space Grotesk',sans-serif" }}>{s.value}</div>
@@ -564,7 +538,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Dept stats */}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:12, marginBottom:24 }}>
             {deptStats.filter(d => d.count>0).map(d => (
               <div key={d.dept} onClick={() => setFilter(filter===d.dept?"All":d.dept)}
@@ -579,7 +552,6 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {/* Filters */}
           <div style={{ display:"flex", gap:8, marginBottom:8, flexWrap:"wrap" }}>
             {depts.map(d => (
               <button key={d} onClick={() => setFilter(d)}
@@ -590,7 +562,6 @@ export default function Dashboard() {
           </div>
           <div style={{ fontSize:10, color:"#1e3a5f", marginBottom:20 }}>Cliquez sur une carte pour voir l'évolution historique</div>
 
-          {/* KPI Grid */}
           {filter === "All" ? (
             <div style={{ display:"flex", flexDirection:"column", gap:32, marginBottom:32 }}>
               {Object.keys(deptColors).map(dept => {
@@ -621,7 +592,7 @@ export default function Dashboard() {
         </>)}
 
         <div style={{ textAlign:"center", marginTop:24, fontSize:10, color:"#1e3a5f", letterSpacing:"0.1em" }}>
-          IEXEC · STRATEGIC KPI DASHBOARD · {week} 2025 · DONNÉES LIVE GOOGLE SHEETS · AUTO-REFRESH 5MIN
+          IEXEC · STRATEGIC KPI DASHBOARD · {week} 2026 · DONNÉES LIVE GOOGLE SHEETS · AUTO-REFRESH 5MIN
         </div>
       </div>
     </div>
