@@ -7,6 +7,22 @@ const GID_HISTORY = "1449053835";
 const csvUrl = (gid) =>
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`;
 
+// ─── KAITO API (via proxy Vercel /api/kaito) ─────────────────────────────────
+// Bascule automatiquement selon la disponibilité du proxy
+async function fetchKaitoStatus() {
+  try {
+    const res = await fetch("/api/kaito?type=status");
+    if (!res.ok) return { enabled: false };
+    return await res.json();
+  } catch { return { enabled: false }; }
+}
+
+async function fetchKaitoData(type) {
+  const res = await fetch(`/api/kaito?type=${type}`);
+  if (!res.ok) throw new Error(`Kaito proxy error ${res.status}`);
+  return await res.json();
+}
+
 // ─── COINGECKO ────────────────────────────────────────────────────────────────
 const TOKENS = [
   { id: "iexec-rlc",    symbol: "RLC",  name: "iExec RLC", color: "#00c2ff", isMain: true  },
@@ -492,9 +508,71 @@ export default function Dashboard() {
   const [filter,      setFilter]      = useState("All");
   const [lastSync,    setLastSync]    = useState(null);
   const [modal,       setModal]       = useState(null);
-  const [tokenData,   setTokenData]   = useState({});   // { RLC: [{ts,pct},...], ROSE: [...], ... }
-  const [tokenPeriod, setTokenPeriod] = useState("ytd");
-  const [tokenLoading,setTokenLoading]= useState(true);
+  const [tokenData,    setTokenData]    = useState({});
+  const [tokenPeriod,  setTokenPeriod]  = useState("ytd");
+  const [tokenLoading, setTokenLoading] = useState(true);
+  // Kaito
+  const [kaitoEnabled, setKaitoEnabled] = useState(false);
+  const [kaitoData,    setKaitoData]    = useState({ mindshare: null, tee_rank: null });
+  const [kaitoStatus,  setKaitoStatus]  = useState("idle"); // idle | loading | ok | error | disabled
+
+  // ── Fetch Kaito data — refresh hebdomadaire (données W-1) ───────────────
+  useEffect(() => {
+    // Calcule le timestamp du prochain lundi 00:05 (UTC)
+    const getMondayRefreshMs = () => {
+      const now = new Date();
+      const day = now.getUTCDay(); // 0=dim, 1=lun...
+      const daysUntilMonday = day === 1 ? 7 : (8 - day) % 7;
+      const nextMonday = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilMonday,
+        0, 5, 0, 0 // 00h05 UTC pour laisser le temps à Kaito de publier
+      ));
+      return nextMonday.getTime() - now.getTime();
+    };
+
+    // Vérifie si on a déjà fetché cette semaine (stocké en mémoire)
+    const getCurrentWeekLabel = () => {
+      const now = new Date();
+      const jan1 = new Date(now.getFullYear(), 0, 1);
+      const w = Math.ceil(((now - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+      return `${now.getFullYear()}-W${String(w).padStart(2, "0")}`;
+    };
+
+    let lastFetchedWeek = null;
+    let weeklyTimer = null;
+
+    const loadKaito = async () => {
+      const thisWeek = getCurrentWeekLabel();
+      if (lastFetchedWeek === thisWeek) return; // déjà fetché cette semaine
+
+      setKaitoStatus("loading");
+      const status = await fetchKaitoStatus();
+      if (!status.enabled) {
+        setKaitoEnabled(false);
+        setKaitoStatus("disabled");
+        return;
+      }
+      setKaitoEnabled(true);
+      try {
+        const [mindshare, teeRank] = await Promise.all([
+          fetchKaitoData("mindshare").catch(() => null),
+          fetchKaitoData("tee_rank").catch(() => null),
+        ]);
+        setKaitoData({ mindshare, tee_rank: teeRank });
+        setKaitoStatus("ok");
+        lastFetchedWeek = thisWeek;
+
+        // Planifie le prochain fetch au lundi suivant
+        const msUntilMonday = getMondayRefreshMs();
+        weeklyTimer = setTimeout(loadKaito, msUntilMonday);
+      } catch {
+        setKaitoStatus("error");
+      }
+    };
+
+    loadKaito();
+    return () => { if (weeklyTimer) clearTimeout(weeklyTimer); };
+  }, []);
 
   // ── Fetch token data (re-runs when tokenPeriod changes) ──────────────────
   useEffect(() => {
@@ -625,6 +703,19 @@ export default function Dashboard() {
 
         if (kid === "9") {
           const THRESHOLD = parseFloat(k.target) || 2.61;
+          // ── Kaito live override ──
+          if (kaitoEnabled && kaitoData.mindshare?.value !== null && kaitoData.mindshare?.value !== undefined) {
+            const liveVal = parseFloat(kaitoData.mindshare.value);
+            const weeksAbove = entries.filter(e => parseFloat(e.value) >= THRESHOLD).length
+              + (liveVal >= THRESHOLD ? 1 : 0); // inclure semaine courante
+            const totalWeeks = Math.max(entries.length + 1, 1);
+            const progress_pct = weeksAbove / totalWeeks;
+            return { ...k, current: Math.round(progress_pct*100), progress_pct,
+              status: progress_pct>=1?"Done":"In Progress",
+              displayLabel: `${weeksAbove}/${totalWeeks} sem. ≥ ${THRESHOLD}%`,
+              latestRaw: `${liveVal.toFixed(2)}% • 🔴 Live Kaito` };
+          }
+          // ── Fallback Sheets ──
           const weeksAbove = entries.filter(e => parseFloat(e.value) >= THRESHOLD).length;
           const totalWeeks = Math.max(entries.length, 1);
           const progress_pct = weeksAbove / totalWeeks;
@@ -634,6 +725,19 @@ export default function Dashboard() {
             latestRaw: parseFloat(latest.value).toFixed(2)+"%" };
         }
         if (kid === "10") {
+          // ── Kaito live override ──
+          if (kaitoEnabled && kaitoData.tee_rank?.value !== null && kaitoData.tee_rank?.value !== undefined) {
+            const liveRank = parseFloat(kaitoData.tee_rank.value);
+            const weeksFirst = entries.filter(e => parseFloat(e.value)===1).length
+              + (liveRank === 1 ? 1 : 0);
+            const totalWeeks = Math.max(entries.length + 1, 1);
+            const progress_pct = weeksFirst / totalWeeks;
+            return { ...k, current: Math.round(progress_pct*100), progress_pct,
+              status: progress_pct>=1?"Done":"In Progress",
+              displayLabel: `${weeksFirst}/${totalWeeks} sem. #1`,
+              latestRaw: `Rank #${liveRank} • 🔴 Live Kaito` };
+          }
+          // ── Fallback Sheets ──
           const weeksFirst = entries.filter(e => parseFloat(e.value)===1).length;
           const totalWeeks = Math.max(entries.length, 1);
           const progress_pct = weeksFirst / totalWeeks;
@@ -720,6 +824,17 @@ export default function Dashboard() {
           </div>
           <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
             {lastSync && <div style={{ fontSize:11, color:"#475569" }}>🔄 Sync : {lastSync}</div>}
+            <div style={{ fontSize:11, padding:"4px 10px", borderRadius:8, border:"1px solid", ...(
+              kaitoStatus === "ok"       ? { color:"#34d399", borderColor:"rgba(52,211,153,0.3)", background:"rgba(52,211,153,0.08)" } :
+              kaitoStatus === "loading"  ? { color:"#f59e0b", borderColor:"rgba(245,158,11,0.3)",  background:"rgba(245,158,11,0.08)"  } :
+              kaitoStatus === "error"    ? { color:"#fb7185", borderColor:"rgba(251,113,133,0.3)", background:"rgba(251,113,133,0.08)" } :
+                                          { color:"#475569", borderColor:"rgba(100,116,139,0.2)",  background:"transparent" }
+            )}}>
+              {kaitoStatus === "ok"      ? `🔴 Kaito ${kaitoData.mindshare?.week ?? ""}` :
+               kaitoStatus === "loading" ? "⟳ Kaito..." :
+               kaitoStatus === "error"   ? "⚠ Kaito Error" :
+                                           "○ Kaito désactivé"}
+            </div>
             <button onClick={fetchData} disabled={loading}
               style={{ padding:"8px 16px", background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:10, fontSize:12, color:"#00c2ff", fontWeight:500, cursor:"pointer" }}>
               {loading ? "⟳ Chargement..." : "⟳ Actualiser"}
