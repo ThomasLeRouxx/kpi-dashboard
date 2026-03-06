@@ -12,7 +12,10 @@
  *   GET /api/kaito?type=tee_rank   → KPI 10 : rang RLC parmi ROSE/PHA/SCRT
  *   GET /api/kaito?type=all        → fetche les deux + écrit dans Sheets
  *   GET /api/kaito?type=status     → vérifie la configuration
+ *
+ * Timeout étendu à 60s pour supporter les 10 appels Kaito séquentiels
  */
+export const maxDuration = 60; // Vercel Pro/Hobby : étend le timeout à 60s
 
 const KAITO_BASE  = "https://api.kaito.ai/api/v1";
 const SHEET_ID    = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
@@ -44,18 +47,35 @@ function getPrevWeekRange() {
   return { start: fmt(mondayPrev), end: fmt(sundayPrev), label };
 }
 
-// ─── KAITO FETCH ──────────────────────────────────────────────────────────────
+// ─── KAITO FETCH — avec timeout individuel ────────────────────────────────────
 async function fetchWeeklyMindshare(token, start, end, apiKey) {
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000); // 4s max par token
     const url = `${KAITO_BASE}/mindshare?token=${token}&start_date=${start}&end_date=${end}`;
     const res = await fetch(url, {
       headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
     if (!res.ok) return 0;
-    const data  = await res.json();
-    const vals  = Object.values(data?.mindshare || {});
+    const data = await res.json();
+    const vals = Object.values(data?.mindshare || {});
     return vals.reduce((s, v) => s + (parseFloat(v) || 0), 0);
   } catch { return 0; }
+}
+
+// Fetch par petits groupes séquentiels pour éviter le timeout Vercel (10s)
+async function fetchInBatches(tokens, start, end, apiKey, batchSize = 3) {
+  const results = [];
+  for (let i = 0; i < tokens.length; i += batchSize) {
+    const batch = tokens.slice(i, i + batchSize);
+    const batchResults = await Promise.all(
+      batch.map(t => fetchWeeklyMindshare(t, start, end, apiKey).then(v => ({ token: t, value: v })))
+    );
+    results.push(...batchResults);
+  }
+  return results;
 }
 
 // ─── GOOGLE SHEETS AUTH (JWT manuel, pas de lib externe) ──────────────────────
@@ -145,9 +165,8 @@ export default async function handler(req, res) {
 
   // ── KPI 9 : Privacy Infra Mindshare ─────────────────────────────────────────
   const computeMindshare = async () => {
-    const scores = await Promise.all(
-      PRIVACY_INFRA_TOKENS.map(t => fetchWeeklyMindshare(t, start, end, apiKey).then(v => ({ token: t, value: v })))
-    );
+    // Fetch par batch de 3 pour éviter timeout (10 tokens total)
+    const scores = await fetchInBatches(PRIVACY_INFRA_TOKENS, start, end, apiKey, 3);
     const total    = scores.reduce((s, t) => s + t.value, 0);
     const rlcRaw   = scores.find(t => t.token === "RLC")?.value || 0;
     const rlcShare = total > 0 ? (rlcRaw / total) * 100 : 0;
@@ -157,7 +176,8 @@ export default async function handler(req, res) {
 
   // ── KPI 10 : TEE Ranking ─────────────────────────────────────────────────────
   const computeTeeRank = async () => {
-    const scores = await Promise.all(
+    // Seulement 4 tokens — pas de batching nécessaire
+    const scores  = await Promise.all(
       TEE_TOKENS.map(t => fetchWeeklyMindshare(t, start, end, apiKey).then(v => ({ token: t, value: v })))
     );
     const ranked  = scores.sort((a,b) => b.value - a.value);
