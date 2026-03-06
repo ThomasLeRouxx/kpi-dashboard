@@ -20,22 +20,30 @@ const PRIVACY_INFRA_TOKENS = ["ZAMA", "AZTEC", "ARCIUM", "MIDEN", "ALEO", "RAIL"
 // Compétiteurs TEE — KPI 10
 const TEE_TOKENS = ["RLC", "ROSE", "PHA", "SCRT"];
 
-// Retourne { start: "YYYY-MM-DD", end: "YYYY-MM-DD", label: "2026-W08" } pour la semaine ISO précédente
+// Retourne { start: "YYYY-MM-DD", end: "YYYY-MM-DD", label: "2026-W09" } pour la semaine ISO précédente
 function getPrevWeekRange() {
   const now = new Date();
-  // Trouver le lundi de la semaine courante
-  const dayOfWeek = now.getUTCDay() || 7; // 1=lun ... 7=dim
-  const mondayThisWeek = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dayOfWeek + 1));
-  // Semaine précédente : lundi-dimanche
-  const mondayPrev = new Date(mondayThisWeek.getTime() - 7 * 86400000);
-  const sundayPrev = new Date(mondayThisWeek.getTime() - 86400000);
+
+  // Jour de la semaine UTC : 0=dim, 1=lun ... 6=sam → on ramène à 1=lun ... 7=dim
+  const dow = now.getUTCDay() === 0 ? 7 : now.getUTCDay();
+
+  // Lundi de la semaine COURANTE (en UTC, minuit)
+  const mondayThis = new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (dow - 1)
+  ));
+
+  // Lundi et dimanche de la semaine PRÉCÉDENTE
+  const mondayPrev = new Date(mondayThis.getTime() - 7 * 86400000);
+  const sundayPrev = new Date(mondayThis.getTime() - 1 * 86400000); // dimanche = lundi courant - 1 jour
 
   const fmt = (d) => d.toISOString().split("T")[0];
 
-  // Calcul du numéro de semaine ISO
-  const jan1 = new Date(Date.UTC(mondayPrev.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((mondayPrev - jan1) / 86400000 + jan1.getUTCDay() + 1) / 7);
-  const label = `${mondayPrev.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+  // Numéro de semaine ISO 8601
+  // Méthode robuste : jeudi de la semaine ISO = toujours dans la bonne année
+  const thursday = new Date(mondayPrev.getTime() + 3 * 86400000);
+  const jan1 = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 1));
+  const isoWeek = Math.ceil(((thursday - jan1) / 86400000 + 1) / 7);
+  const label = `${thursday.getUTCFullYear()}-W${String(isoWeek).padStart(2, "0")}`;
 
   return { start: fmt(mondayPrev), end: fmt(sundayPrev), label };
 }
@@ -62,12 +70,13 @@ export default async function handler(req, res) {
 
   // ── Status ──────────────────────────────────────────────────────────────────
   if (type === "status") {
-    const { label } = getPrevWeekRange();
+    const { start, end, label } = getPrevWeekRange();
     return res.status(200).json({
       enabled: !!apiKey,
       dataWeek: label,
+      dateRange: { start, end },
       message: apiKey
-        ? `Kaito API configurée ✓ — données semaine ${label}`
+        ? `Kaito API configurée ✓ — données semaine ${label} (${start} → ${end})`
         : "KAITO_API_KEY manquante dans les variables Vercel",
     });
   }
