@@ -17,10 +17,10 @@ async function fetchKaitoStatus() {
   } catch { return { enabled: false }; }
 }
 
-async function fetchKaitoData(type) {
-  const res = await fetch(`/api/kaito?type=${type}`);
+async function fetchKaitoAll() {
+  const res = await fetch("/api/kaito?type=all");
   if (!res.ok) throw new Error(`Kaito proxy error ${res.status}`);
-  return await res.json();
+  return await res.json(); // { mindshare, teeRank, sheets }
 }
 
 // ─── COINGECKO ────────────────────────────────────────────────────────────────
@@ -347,9 +347,9 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
   const color  = getColor(kpi.dept);
   const status = statusConfig[kpi.status] || statusConfig["Not Started"];
   const pct    = Math.round(Math.min(parseFloat(kpi.progress_pct||0)*100, 100));
-  const kpiHist = history
+  const kpiHist = (kpi.kaitoHistory || history
     .filter(h => String(h.kpi_id).trim() === String(kpi.id).trim())
-    .sort((a,b) => a.week.localeCompare(b.week));
+    .sort((a,b) => a.week.localeCompare(b.week)));
   const isToken = kpi.id === "TOKEN_PERF";
 
   useEffect(() => {
@@ -554,14 +554,11 @@ export default function Dashboard() {
       }
       setKaitoEnabled(true);
       try {
-        const [mindshare, teeRank] = await Promise.all([
-          fetchKaitoData("mindshare").catch(() => null),
-          fetchKaitoData("tee_rank").catch(() => null),
-        ]);
+        const { mindshare, teeRank, sheets } = await fetchKaitoAll();
         setKaitoData({ mindshare, tee_rank: teeRank });
         setKaitoStatus("ok");
         lastFetchedWeek = thisWeek;
-
+        console.log("Kaito → Sheets:", sheets);
         // Planifie le prochain fetch au lundi suivant
         const msUntilMonday = getMondayRefreshMs();
         weeklyTimer = setTimeout(loadKaito, msUntilMonday);
@@ -705,19 +702,23 @@ export default function Dashboard() {
           const THRESHOLD = parseFloat(k.target) || 2.61;
           // ── Kaito live override ──
           if (kaitoEnabled && kaitoData.mindshare?.value !== null && kaitoData.mindshare?.value !== undefined) {
-            const liveVal = parseFloat(kaitoData.mindshare.value);
-            const weeksAbove = entries.filter(e => parseFloat(e.value) >= THRESHOLD).length
-              + (liveVal >= THRESHOLD ? 1 : 0); // inclure semaine courante
-            const totalWeeks = Math.max(entries.length + 1, 1);
+            const liveVal   = parseFloat(kaitoData.mindshare.value);
+            const liveWeek  = kaitoData.mindshare.week || "";
+            // Injecter W-1 dans l'historique si elle n'y est pas déjà
+            const alreadyIn = entries.some(e => e.week === liveWeek);
+            const augmented = alreadyIn ? entries : [...entries, { week: liveWeek, kpi_id: kid, value: liveVal }];
+            const weeksAbove   = augmented.filter(e => parseFloat(e.value) >= THRESHOLD).length;
+            const totalWeeks   = Math.max(augmented.length, 1);
             const progress_pct = weeksAbove / totalWeeks;
             return { ...k, current: Math.round(progress_pct*100), progress_pct,
               status: progress_pct>=1?"Done":"In Progress",
               displayLabel: `${weeksAbove}/${totalWeeks} sem. ≥ ${THRESHOLD}%`,
-              latestRaw: `${liveVal.toFixed(2)}% • 🔴 Live Kaito` };
+              latestRaw: `${liveVal.toFixed(2)}% • 🔴 Kaito ${liveWeek}`,
+              kaitoHistory: augmented };   // ← historique enrichi pour la sparkline
           }
           // ── Fallback Sheets ──
-          const weeksAbove = entries.filter(e => parseFloat(e.value) >= THRESHOLD).length;
-          const totalWeeks = Math.max(entries.length, 1);
+          const weeksAbove   = entries.filter(e => parseFloat(e.value) >= THRESHOLD).length;
+          const totalWeeks   = Math.max(entries.length, 1);
           const progress_pct = weeksAbove / totalWeeks;
           return { ...k, current: Math.round(progress_pct*100), progress_pct,
             status: progress_pct>=1?"Done":entries.length>0?"In Progress":"Not Started",
@@ -727,19 +728,22 @@ export default function Dashboard() {
         if (kid === "10") {
           // ── Kaito live override ──
           if (kaitoEnabled && kaitoData.tee_rank?.value !== null && kaitoData.tee_rank?.value !== undefined) {
-            const liveRank = parseFloat(kaitoData.tee_rank.value);
-            const weeksFirst = entries.filter(e => parseFloat(e.value)===1).length
-              + (liveRank === 1 ? 1 : 0);
-            const totalWeeks = Math.max(entries.length + 1, 1);
+            const liveRank  = parseFloat(kaitoData.tee_rank.value);
+            const liveWeek  = kaitoData.tee_rank.week || "";
+            const alreadyIn = entries.some(e => e.week === liveWeek);
+            const augmented = alreadyIn ? entries : [...entries, { week: liveWeek, kpi_id: kid, value: liveRank }];
+            const weeksFirst   = augmented.filter(e => parseFloat(e.value) === 1).length;
+            const totalWeeks   = Math.max(augmented.length, 1);
             const progress_pct = weeksFirst / totalWeeks;
             return { ...k, current: Math.round(progress_pct*100), progress_pct,
               status: progress_pct>=1?"Done":"In Progress",
               displayLabel: `${weeksFirst}/${totalWeeks} sem. #1`,
-              latestRaw: `Rank #${liveRank} • 🔴 Live Kaito` };
+              latestRaw: `Rank #${liveRank} • 🔴 Kaito ${liveWeek}`,
+              kaitoHistory: augmented };   // ← historique enrichi pour la sparkline
           }
           // ── Fallback Sheets ──
-          const weeksFirst = entries.filter(e => parseFloat(e.value)===1).length;
-          const totalWeeks = Math.max(entries.length, 1);
+          const weeksFirst   = entries.filter(e => parseFloat(e.value) === 1).length;
+          const totalWeeks   = Math.max(entries.length, 1);
           const progress_pct = weeksFirst / totalWeeks;
           return { ...k, current: Math.round(progress_pct*100), progress_pct,
             status: progress_pct>=1?"Done":entries.length>0?"In Progress":"Not Started",
