@@ -153,9 +153,17 @@ export default async function handler(req, res) {
     return res.status(200).json({
       enabled:       !!apiKey,
       sheetsEnabled: !!(saEmail && saKey),
-      dataWeek:      label,
-      dateRange:     { start, end },
-      message:       apiKey ? `Kaito ✓ — semaine ${label} (${start} → ${end})` : "KAITO_API_KEY manquante",
+      // Debug — à supprimer après correction
+      debug: {
+        hasEmail:  !!saEmail,
+        emailLen:  saEmail?.length || 0,
+        hasKey:    !!saKey,
+        keyLen:    saKey?.length || 0,
+        keyStart:  saKey?.substring(0, 27) || "MISSING", // affiche juste le début
+      },
+      dataWeek:  label,
+      dateRange: { start, end },
+      message:   apiKey ? `Kaito ✓ — semaine ${label} (${start} → ${end})` : "KAITO_API_KEY manquante",
     });
   }
 
