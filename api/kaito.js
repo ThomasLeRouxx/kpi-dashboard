@@ -1,76 +1,58 @@
 /**
  * Vercel Serverless Function — Proxy Kaito API
- * Fichier à placer dans : /api/kaito.js
+ * Fichier : /api/kaito.js
  *
- * Variables d'environnement à configurer dans Vercel :
- *   KAITO_API_KEY=your_kaito_api_key_here
+ * Variable d'environnement Vercel : KAITO_API_KEY
  *
- * Endpoints exposés :
- *   GET /api/kaito?type=mindshare   → mindshare Privacy Infra iExec RLC (KPI 9)
- *   GET /api/kaito?type=tee_rank    → mindshare TEE Provider ranking (KPI 10)
+ * Endpoints :
+ *   GET /api/kaito?type=mindshare   → KPI 9 : part de RLC dans le référentiel Privacy Infra
+ *   GET /api/kaito?type=tee_rank    → KPI 10 : rang de RLC parmi ROSE, PHA, SCRT
  *   GET /api/kaito?type=status      → vérifie si la clé est configurée
  *
- * Données hebdomadaires : on interroge toujours la semaine ISO précédente (W-1)
+ * Logique : données agrégées sur la semaine ISO précédente (W-1)
  */
 
 const KAITO_BASE = "https://api.kaito.ai/api/v1";
 
-// Retourne la semaine ISO précédente sous la forme { year, week, label: "2026-W08" }
-function getPrevISOWeek() {
+// Référentiel Privacy Infra — KPI 9
+const PRIVACY_INFRA_TOKENS = ["ZAMA", "AZTEC", "ARCIUM", "MIDEN", "ALEO", "RAIL", "RLC", "ROSE", "PHA", "INCO"];
+
+// Compétiteurs TEE — KPI 10
+const TEE_TOKENS = ["RLC", "ROSE", "PHA", "SCRT"];
+
+// Retourne { start: "YYYY-MM-DD", end: "YYYY-MM-DD", label: "2026-W08" } pour la semaine ISO précédente
+function getPrevWeekRange() {
   const now = new Date();
-  // Reculer de 7 jours pour avoir la semaine précédente
-  const prev = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const jan1 = new Date(prev.getFullYear(), 0, 1);
-  const week = Math.ceil(((prev - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-  const label = `${prev.getFullYear()}-W${String(week).padStart(2, "0")}`;
-  return { year: prev.getFullYear(), week, label };
+  // Trouver le lundi de la semaine courante
+  const dayOfWeek = now.getUTCDay() || 7; // 1=lun ... 7=dim
+  const mondayThisWeek = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dayOfWeek + 1));
+  // Semaine précédente : lundi-dimanche
+  const mondayPrev = new Date(mondayThisWeek.getTime() - 7 * 86400000);
+  const sundayPrev = new Date(mondayThisWeek.getTime() - 86400000);
+
+  const fmt = (d) => d.toISOString().split("T")[0];
+
+  // Calcul du numéro de semaine ISO
+  const jan1 = new Date(Date.UTC(mondayPrev.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((mondayPrev - jan1) / 86400000 + jan1.getUTCDay() + 1) / 7);
+  const label = `${mondayPrev.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+
+  return { start: fmt(mondayPrev), end: fmt(sundayPrev), label };
 }
 
-// Retourne la semaine ISO courante
-function getCurrentISOWeek() {
-  const now = new Date();
-  const jan1 = new Date(now.getFullYear(), 0, 1);
-  const week = Math.ceil(((now - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-  return `${now.getFullYear()}-W${String(week).padStart(2, "0")}`;
+// Fetch le mindshare d'un token sur une période, retourne la somme des valeurs journalières
+async function fetchWeeklyMindshare(token, start, end, apiKey) {
+  const url = `${KAITO_BASE}/mindshare?token=${token}&start_date=${start}&end_date=${end}`;
+  const res = await fetch(url, {
+    headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
+  });
+  if (!res.ok) return 0;
+  const data = await res.json();
+  const values = Object.values(data?.mindshare || {});
+  return values.reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
 }
-
-const KAITO_ENDPOINTS = {
-  // Mindshare RLC dans la catégorie "Privacy Infrastructure" — KPI 9
-  mindshare: {
-    path: "/mindshare",
-    buildParams: () => ({
-      token: "RLC",
-      category: "privacy_infrastructure",
-      period: "7d",
-      week: getPrevISOWeek().label,
-    }),
-    extract: (data) => ({
-      value: data?.mindshare_pct ?? data?.value ?? null,
-      unit: "%",
-      label: "Privacy Infra Mindshare",
-      week: getPrevISOWeek().label,
-    }),
-  },
-  // Mindshare RLC dans la catégorie "TEE Provider" — KPI 10
-  tee_rank: {
-    path: "/rankings",
-    buildParams: () => ({
-      category: "tee_provider",
-      token: "RLC",
-      period: "7d",
-      week: getPrevISOWeek().label,
-    }),
-    extract: (data) => ({
-      value: data?.rank ?? data?.position ?? null,
-      unit: "rank",
-      label: "TEE Provider Rank",
-      week: getPrevISOWeek().label,
-    }),
-  },
-};
 
 export default async function handler(req, res) {
-  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -78,62 +60,81 @@ export default async function handler(req, res) {
   const apiKey = process.env.KAITO_API_KEY;
   const { type } = req.query;
 
-  // Status check
+  // ── Status ──────────────────────────────────────────────────────────────────
   if (type === "status") {
+    const { label } = getPrevWeekRange();
     return res.status(200).json({
       enabled: !!apiKey,
-      currentWeek: getCurrentISOWeek(),
-      dataWeek: getPrevISOWeek().label,
+      dataWeek: label,
       message: apiKey
-        ? `Kaito API configurée ✓ — données semaine ${getPrevISOWeek().label}`
+        ? `Kaito API configurée ✓ — données semaine ${label}`
         : "KAITO_API_KEY manquante dans les variables Vercel",
     });
   }
 
-  if (!apiKey) {
-    return res.status(503).json({ error: "KAITO_API_KEY non configurée", enabled: false });
-  }
+  if (!apiKey) return res.status(503).json({ error: "KAITO_API_KEY non configurée", enabled: false });
 
-  const endpoint = KAITO_ENDPOINTS[type];
-  if (!endpoint) {
-    return res.status(400).json({
-      error: `Type inconnu : ${type}. Valeurs acceptées : mindshare, tee_rank`,
-    });
-  }
+  const { start, end, label } = getPrevWeekRange();
 
-  try {
-    const params = new URLSearchParams(endpoint.buildParams()).toString();
-    const url = `${KAITO_BASE}${endpoint.path}?${params}`;
+  // ── KPI 9 : Privacy Infra Mindshare — part de RLC dans le référentiel ───────
+  if (type === "mindshare") {
+    try {
+      // Fetch tous les tokens du référentiel en parallèle
+      const scores = await Promise.all(
+        PRIVACY_INFRA_TOKENS.map(t => fetchWeeklyMindshare(t, start, end, apiKey).then(v => ({ token: t, value: v })))
+      );
 
-    const kaitoRes = await fetch(url, {
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-      },
-    });
+      const totalMindshare = scores.reduce((s, t) => s + t.value, 0);
+      const rlcMindshare   = scores.find(t => t.token === "RLC")?.value || 0;
+      const rlcShare       = totalMindshare > 0 ? (rlcMindshare / totalMindshare) * 100 : 0;
 
-    if (!kaitoRes.ok) {
-      const errText = await kaitoRes.text();
-      return res.status(kaitoRes.status).json({
-        error: `Kaito API error ${kaitoRes.status}`,
-        detail: errText,
+      // Cache 24h
+      res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate");
+
+      return res.status(200).json({
+        value: parseFloat(rlcShare.toFixed(4)),
+        unit: "%",
+        label: `Part RLC dans Privacy Infra`,
+        week: label,
+        detail: {
+          rlc_raw: rlcMindshare,
+          total_raw: totalMindshare,
+          breakdown: scores.sort((a, b) => b.value - a.value),
+        },
+        fetchedAt: new Date().toISOString(),
       });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
     }
-
-    const rawData = await kaitoRes.json();
-    const extracted = endpoint.extract(rawData);
-
-    // Cache 24h côté Vercel Edge (données hebdo, pas besoin de refetch souvent)
-    res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate");
-
-    return res.status(200).json({
-      ...extracted,
-      raw: rawData,
-      fetchedAt: new Date().toISOString(),
-    });
-
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
   }
+
+  // ── KPI 10 : TEE Ranking — rang de RLC parmi ROSE, PHA, SCRT ────────────────
+  if (type === "tee_rank") {
+    try {
+      const scores = await Promise.all(
+        TEE_TOKENS.map(t => fetchWeeklyMindshare(t, start, end, apiKey).then(v => ({ token: t, value: v })))
+      );
+
+      // Trier par mindshare décroissant
+      const ranked = scores.sort((a, b) => b.value - a.value);
+      const rlcRank = ranked.findIndex(t => t.token === "RLC") + 1;
+
+      res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate");
+
+      return res.status(200).json({
+        value: rlcRank,
+        unit: "rank",
+        label: `TEE Rank RLC vs ROSE/PHA/SCRT`,
+        week: label,
+        detail: {
+          ranking: ranked.map((t, i) => ({ rank: i + 1, token: t.token, mindshare: t.value })),
+        },
+        fetchedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  return res.status(400).json({ error: `Type inconnu : ${type}. Valeurs : mindshare, tee_rank, status` });
 }
