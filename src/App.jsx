@@ -7,20 +7,13 @@ const GID_HISTORY = "1449053835";
 const csvUrl = (gid) =>
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`;
 
-// ─── KAITO API (via proxy Vercel /api/kaito) ─────────────────────────────────
-// Bascule automatiquement selon la disponibilité du proxy
+// ─── KAITO (status uniquement — calculs faits par Claude MCP) ────────────────
 async function fetchKaitoStatus() {
   try {
     const res = await fetch("/api/kaito?type=status");
     if (!res.ok) return { enabled: false };
     return await res.json();
   } catch { return { enabled: false }; }
-}
-
-async function fetchKaitoAll() {
-  const res = await fetch("/api/kaito?type=all");
-  if (!res.ok) throw new Error(`Kaito proxy error ${res.status}`);
-  return await res.json(); // { mindshare, teeRank, sheets }
 }
 
 // ─── COINGECKO ────────────────────────────────────────────────────────────────
@@ -359,70 +352,143 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
   }, [onClose]);
 
   return (
-    <div onClick={onClose}
-      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", backdropFilter:"blur(8px)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-      <div onClick={e => e.stopPropagation()}
-        style={{ background:"#0a1628", border:`1px solid ${color}44`, borderRadius:20, padding:28, width:"100%", maxWidth:520, position:"relative", boxShadow:`0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px ${color}22` }}>
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, background:"rgba(0,0,0,0.85)",
+      backdropFilter:"blur(12px)", zIndex:9999,
+      display:"flex", alignItems:"center", justifyContent:"center", padding:"24px 16px",
+      overflowY:"auto",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background:"linear-gradient(160deg,#0d1f3c 0%,#060d18 100%)",
+        border:`1px solid ${color}55`,
+        borderRadius:24, width:"100%", maxWidth:680,
+        position:"relative",
+        boxShadow:`0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px ${color}22, inset 0 1px 0 rgba(255,255,255,0.05)`,
+        overflow:"hidden",
+      }}>
 
-        <button onClick={onClose}
-          style={{ position:"absolute", top:14, right:14, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, width:30, height:30, cursor:"pointer", color:"#94a3b8", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"inherit" }}>
-          ✕
-        </button>
+        {/* Bande colorée en haut */}
+        <div style={{ height:4, background:`linear-gradient(90deg,${color},${color}44,transparent)`, width:"100%" }}/>
 
-        <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.12em", color, textTransform:"uppercase", marginBottom:6 }}>
-            {kpi.dept} · {kpi.type}
-          </div>
-          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:17, fontWeight:700, color:"#f8fafc", lineHeight:1.35, marginBottom:14, paddingRight:32 }}>
-            {kpi.name}
-          </div>
+        {/* Contenu */}
+        <div style={{ padding:"28px 32px 32px" }}>
 
-          <div style={{ height:5, background:"rgba(255,255,255,0.05)", borderRadius:6, overflow:"hidden", marginBottom:10 }}>
-            <div style={{ width:`${pct}%`, height:"100%", background:`linear-gradient(90deg,${color},${color}88)`, borderRadius:6 }}/>
-          </div>
-
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <div style={{ fontSize:12, color:"#94a3b8" }}>
-              {kpi.displayLabel ? (
-                <div>
-                  <span style={{ color:"#f8fafc", fontWeight:700, fontSize:17 }}>{kpi.displayLabel}</span>
-                  {kpi.latestRaw && <div style={{ fontSize:11, color:"#475569", marginTop:3 }}>{kpi.latestRaw}</div>}
+          {/* Header */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24 }}>
+            <div style={{ flex:1, paddingRight:16 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.15em", color, textTransform:"uppercase",
+                  background:`${color}18`, border:`1px solid ${color}33`, borderRadius:6, padding:"3px 8px" }}>
+                  {kpi.dept}
                 </div>
-              ) : (
+                <div style={{ fontSize:10, color:"#475569", letterSpacing:"0.1em", textTransform:"uppercase" }}>
+                  {kpi.type}
+                </div>
+              </div>
+              <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:20, fontWeight:700, color:"#f8fafc", lineHeight:1.3 }}>
+                {kpi.name}
+              </div>
+            </div>
+            <button onClick={onClose} style={{
+              background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)",
+              borderRadius:10, width:34, height:34, cursor:"pointer", color:"#64748b",
+              fontSize:16, display:"flex", alignItems:"center", justifyContent:"center",
+              fontFamily:"inherit", flexShrink:0, transition:"all 0.2s",
+            }}>✕</button>
+          </div>
+
+          {/* Stats row */}
+          <div style={{
+            display:"grid", gridTemplateColumns: isToken ? "1fr auto" : "1fr auto auto",
+            gap:16, alignItems:"center",
+            background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.06)",
+            borderRadius:14, padding:"18px 20px", marginBottom:20,
+          }}>
+            <div>
+              <div style={{ fontSize:11, color:"#475569", marginBottom:6, letterSpacing:"0.05em" }}>
+                {isToken ? "Classement actuel" : "Progression"}
+              </div>
+              {kpi.displayLabel ? (
                 <>
-                  <span style={{ color:"#f8fafc", fontWeight:700, fontSize:17 }}>{fmt(kpi.current, kpi.type)}</span>
-                  <span style={{ marginLeft:4 }}>/ {fmt(kpi.target, kpi.type)}</span>
+                  <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:22, fontWeight:700, color:"#f8fafc" }}>
+                    {kpi.displayLabel}
+                  </div>
+                  {kpi.latestRaw && (
+                    <div style={{ fontSize:11, color:"#475569", marginTop:4 }}>{kpi.latestRaw}</div>
+                  )}
                 </>
+              ) : (
+                <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:22, fontWeight:700, color:"#f8fafc" }}>
+                  {fmt(kpi.current, kpi.type)}
+                  <span style={{ fontSize:14, color:"#475569", fontWeight:400, marginLeft:6 }}>
+                    / {fmt(kpi.target, kpi.type)}
+                  </span>
+                </div>
               )}
             </div>
-            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-              {!isToken && <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:24, fontWeight:700, color }}>{pct}%</span>}
-              <div style={{ fontSize:10, fontWeight:700, padding:"3px 10px", borderRadius:20, color:status.color, background:status.bg }}>
+
+            {!isToken && (
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:11, color:"#475569", marginBottom:6 }}>Complétion</div>
+                <div style={{ position:"relative", width:64, height:64 }}>
+                  <RadialProgress pct={pct} color={color} size={64}/>
+                  <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
+                    fontSize:13, fontWeight:700, color }}>
+                    {pct}%
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{ textAlign:"center" }}>
+              <div style={{ fontSize:11, color:"#475569", marginBottom:6 }}>Statut</div>
+              <div style={{ fontSize:11, fontWeight:700, padding:"6px 14px", borderRadius:20,
+                color:status.color, background:status.bg, border:`1px solid ${status.color}33`, whiteSpace:"nowrap" }}>
                 {status.label}
               </div>
             </div>
           </div>
-        </div>
 
-        <div style={{ height:1, background:"rgba(255,255,255,0.06)", marginBottom:18 }}/>
-
-        <div>
-          {isToken ? (
-            <>
-              <div style={{ fontSize:10, color:"#475569", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:14 }}>
-                📈 Performance relative (base 0% au départ)
+          {/* Barre de progression (hors Token) */}
+          {!isToken && (
+            <div style={{ marginBottom:24 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:"#334155", marginBottom:6 }}>
+                <span>0%</span>
+                <span style={{ color }}>{pct}% atteint</span>
+                <span>100%</span>
               </div>
-              <TokenChart seriesMap={tokenData} period={tokenPeriod} setPeriod={setTokenPeriod}/>
-            </>
-          ) : (
-            <>
-              <div style={{ fontSize:10, color:"#475569", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:14 }}>
-                📈 Évolution hebdomadaire
-                {kpiHist.length > 0 && <span style={{ color, marginLeft:8 }}>{kpiHist.length} semaine{kpiHist.length>1?"s":""}</span>}
+              <div style={{ height:8, background:"rgba(255,255,255,0.05)", borderRadius:8, overflow:"hidden" }}>
+                <div style={{
+                  width:`${pct}%`, height:"100%",
+                  background:`linear-gradient(90deg,${color},${color}88)`,
+                  borderRadius:8, transition:"width 1s ease",
+                  boxShadow:`0 0 12px ${color}66`,
+                }}/>
               </div>
-              <Sparkline data={kpiHist} color={color} target={kpi.target}/>
-            </>
+            </div>
           )}
+
+          {/* Divider */}
+          <div style={{ height:1, background:"rgba(255,255,255,0.06)", marginBottom:20 }}/>
+
+          {/* Chart */}
+          <div>
+            <div style={{ fontSize:10, color:"#475569", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:16,
+              display:"flex", alignItems:"center", gap:8 }}>
+              <span>📈</span>
+              <span>{isToken ? "Performance relative (base 0% au départ)" : "Évolution hebdomadaire"}</span>
+              {!isToken && kpiHist.length > 0 && (
+                <span style={{ color, background:`${color}18`, border:`1px solid ${color}33`,
+                  borderRadius:6, padding:"2px 8px", fontSize:9 }}>
+                  {kpiHist.length} sem.
+                </span>
+              )}
+            </div>
+            {isToken
+              ? <TokenChart seriesMap={tokenData} period={tokenPeriod} setPeriod={setTokenPeriod}/>
+              : <Sparkline data={kpiHist} color={color} target={kpi.target}/>
+            }
+          </div>
         </div>
       </div>
     </div>
@@ -516,59 +582,12 @@ export default function Dashboard() {
   const [kaitoData,    setKaitoData]    = useState({ mindshare: null, tee_rank: null });
   const [kaitoStatus,  setKaitoStatus]  = useState("idle"); // idle | loading | ok | error | disabled
 
-  // ── Fetch Kaito data — refresh hebdomadaire (données W-1) ───────────────
+  // ── Vérifie juste si Kaito est configuré (badge header) ─────────────────
   useEffect(() => {
-    // Calcule le timestamp du prochain lundi 00:05 (UTC)
-    const getMondayRefreshMs = () => {
-      const now = new Date();
-      const day = now.getUTCDay(); // 0=dim, 1=lun...
-      const daysUntilMonday = day === 1 ? 7 : (8 - day) % 7;
-      const nextMonday = new Date(Date.UTC(
-        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilMonday,
-        0, 5, 0, 0 // 00h05 UTC pour laisser le temps à Kaito de publier
-      ));
-      return nextMonday.getTime() - now.getTime();
-    };
-
-    // Vérifie si on a déjà fetché cette semaine (stocké en mémoire)
-    const getCurrentWeekLabel = () => {
-      const now = new Date();
-      const jan1 = new Date(now.getFullYear(), 0, 1);
-      const w = Math.ceil(((now - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-      return `${now.getFullYear()}-W${String(w).padStart(2, "0")}`;
-    };
-
-    let lastFetchedWeek = null;
-    let weeklyTimer = null;
-
-    const loadKaito = async () => {
-      const thisWeek = getCurrentWeekLabel();
-      if (lastFetchedWeek === thisWeek) return; // déjà fetché cette semaine
-
-      setKaitoStatus("loading");
-      const status = await fetchKaitoStatus();
-      if (!status.enabled) {
-        setKaitoEnabled(false);
-        setKaitoStatus("disabled");
-        return;
-      }
-      setKaitoEnabled(true);
-      try {
-        const { mindshare, teeRank, sheets } = await fetchKaitoAll();
-        setKaitoData({ mindshare, tee_rank: teeRank });
-        setKaitoStatus("ok");
-        lastFetchedWeek = thisWeek;
-        console.log("Kaito → Sheets:", sheets);
-        // Planifie le prochain fetch au lundi suivant
-        const msUntilMonday = getMondayRefreshMs();
-        weeklyTimer = setTimeout(loadKaito, msUntilMonday);
-      } catch {
-        setKaitoStatus("error");
-      }
-    };
-
-    loadKaito();
-    return () => { if (weeklyTimer) clearTimeout(weeklyTimer); };
+    fetchKaitoStatus().then(s => {
+      setKaitoEnabled(s.enabled);
+      setKaitoStatus(s.enabled ? "ok" : "disabled");
+    });
   }, []);
 
   // ── Fetch token data (re-runs when tokenPeriod changes) ──────────────────
