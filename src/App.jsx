@@ -16,6 +16,14 @@ async function fetchKaitoStatus() {
   } catch { return { enabled: false }; }
 }
 
+async function fetchKaitoMindshare() {
+  try {
+    const res = await fetch("/api/kaito?type=mindshare");
+    if (!res.ok) return null;
+    return await res.json(); // { value, unit, week, detail: { breakdown: [{token, value}] } }
+  } catch { return null; }
+}
+
 // ─── COINGECKO ────────────────────────────────────────────────────────────────
 const TOKENS = [
   { id: "iexec-rlc",    symbol: "RLC",  name: "iExec RLC", color: "#00c2ff", isMain: true  },
@@ -335,6 +343,229 @@ function TokenChart({ seriesMap, period, setPeriod }) {
   );
 }
 
+// ─── MINDSHARE TREEMAP ────────────────────────────────────────────────────────
+// Algorithme squarified treemap : divise récursivement le rectangle en bandes
+// dont les ratios d'aspect sont les plus proches de 1 possible.
+function squarify(items, x, y, w, h) {
+  if (items.length === 0) return [];
+  const total = items.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return [];
+
+  const rects = [];
+  let remaining = [...items];
+  let rx = x, ry = y, rw = w, rh = h;
+
+  while (remaining.length > 0) {
+    const isHoriz = rw >= rh;
+    const bandSize = isHoriz ? rw : rh;
+    const remainTotal = remaining.reduce((s, d) => s + d.value, 0);
+
+    // Cherche combien d'items mettre dans la bande courante
+    let best = [], bestWorst = Infinity;
+    for (let i = 1; i <= remaining.length; i++) {
+      const band = remaining.slice(0, i);
+      const bandTotal = band.reduce((s, d) => s + d.value, 0);
+      const scale = (rw * rh) / remainTotal;
+      const bandW = isHoriz ? (bandTotal / remainTotal) * rw : rw;
+      const bandH = isHoriz ? rh : (bandTotal / remainTotal) * rh;
+      const worst = band.reduce((m, d) => {
+        const a = (d.value / bandTotal) * (isHoriz ? bandH : bandW);
+        const b2 = isHoriz ? bandH : bandW;
+        const ratio = Math.max(b2 / a, a / b2);
+        return Math.max(m, ratio);
+      }, 0);
+      if (worst < bestWorst) { bestWorst = worst; best = band; }
+      else break;
+    }
+
+    // Place les items de la bande
+    const bandTotal = best.reduce((s, d) => s + d.value, 0);
+    const bandFrac = bandTotal / remainTotal;
+    const bandW = isHoriz ? bandFrac * rw : rw;
+    const bandH = isHoriz ? rh : bandFrac * rh;
+    let cursor = isHoriz ? ry : rx;
+
+    best.forEach(item => {
+      const frac = item.value / bandTotal;
+      const iw = isHoriz ? bandW : frac * bandW;
+      const ih = isHoriz ? frac * bandH : bandH;
+      const ix = isHoriz ? rx : cursor;
+      const iy = isHoriz ? cursor : ry;
+      rects.push({ ...item, x: ix, y: iy, w: iw, h: ih });
+      cursor += isHoriz ? ih : iw;
+    });
+
+    if (isHoriz) { rx += bandW; rw -= bandW; }
+    else         { ry += bandH; rh -= bandH; }
+    remaining = remaining.slice(best.length);
+  }
+  return rects;
+}
+
+// Interpolation rouge → jaune → vert selon t ∈ [0,1]
+function heatColor(t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  if (clamped < 0.5) {
+    // rouge → jaune
+    const r = 239, g = Math.round(68 + (190 - 68) * (clamped / 0.5)), b = 68;
+    return `rgb(${r},${g},${b})`;
+  } else {
+    // jaune → vert
+    const r = Math.round(239 + (34 - 239) * ((clamped - 0.5) / 0.5));
+    const g = Math.round(190 + (197 - 190) * ((clamped - 0.5) / 0.5));
+    const b = 68;
+    return `rgb(${r},${g},${b})`;
+  }
+}
+
+function MindshareTreemap({ breakdown, week }) {
+  const [hovered, setHovered] = useState(null);
+  const W = 560, H = 220;
+  const PAD = 2;
+
+  if (!breakdown || breakdown.length === 0) {
+    return (
+      <div style={{ height: H, display:"flex", alignItems:"center", justifyContent:"center",
+        color:"#334155", fontSize:12, flexDirection:"column", gap:8 }}>
+        <span style={{ fontSize:24 }}>📭</span>
+        <span>Données Kaito non disponibles</span>
+        <span style={{ fontSize:10, color:"#1e3a5f" }}>Vérifier la clé API Kaito dans Vercel</span>
+      </div>
+    );
+  }
+
+  const total = breakdown.reduce((s, d) => s + (d.value || 0), 0);
+  const items = breakdown
+    .filter(d => d.value > 0)
+    .map(d => ({ token: d.token, value: d.value, pct: total > 0 ? (d.value / total) * 100 : 0 }))
+    .sort((a, b) => b.value - a.value);
+
+  const rects = squarify(items, PAD, PAD, W - PAD * 2, H - PAD * 2);
+  const maxVal = Math.max(...items.map(d => d.value));
+  const minVal = Math.min(...items.map(d => d.value));
+
+  return (
+    <div style={{ position:"relative" }}>
+      {/* Label section */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+        <div style={{ fontSize:10, color:"#475569", letterSpacing:"0.12em", textTransform:"uppercase",
+          display:"flex", alignItems:"center", gap:8 }}>
+          <span>🟩</span>
+          <span>Répartition Mindshare — Privacy Infra</span>
+          {week && <span style={{ color:"#38bdf8", background:"rgba(56,189,248,0.1)",
+            border:"1px solid rgba(56,189,248,0.2)", borderRadius:6, padding:"2px 8px", fontSize:9 }}>{week}</span>}
+        </div>
+        {/* Légende couleur */}
+        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+          <span style={{ fontSize:9, color:"#475569" }}>faible</span>
+          <div style={{ width:80, height:8, borderRadius:4, background:"linear-gradient(90deg,rgb(239,68,68),rgb(239,190,68),rgb(34,197,68))" }}/>
+          <span style={{ fontSize:9, color:"#475569" }}>fort</span>
+        </div>
+      </div>
+
+      {/* SVG treemap */}
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block", borderRadius:10, overflow:"hidden" }}>
+        {/* Fond */}
+        <rect x={0} y={0} width={W} height={H} fill="rgba(255,255,255,0.02)" rx={8}/>
+
+        {rects.map((r, i) => {
+          const t = maxVal > minVal ? (r.value - minVal) / (maxVal - minVal) : 0.5;
+          const color = heatColor(t);
+          const isRLC = r.token === "RLC";
+          const isHov = hovered === r.token;
+          const showLabel = r.w > 38 && r.h > 24;
+          const showPct   = r.w > 50 && r.h > 40;
+
+          return (
+            <g key={r.token}
+              onMouseEnter={() => setHovered(r.token)}
+              onMouseLeave={() => setHovered(null)}
+              style={{ cursor:"default" }}>
+              <rect
+                x={r.x + 1} y={r.y + 1}
+                width={Math.max(r.w - 2, 1)} height={Math.max(r.h - 2, 1)}
+                rx={4}
+                fill={color}
+                fillOpacity={isHov ? 0.95 : 0.75}
+                stroke={isRLC ? "#ffffff" : isHov ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.2)"}
+                strokeWidth={isRLC ? 2 : isHov ? 1.5 : 0.5}
+                style={{ transition:"fill-opacity 0.15s" }}
+              />
+              {/* Glow RLC */}
+              {isRLC && (
+                <rect
+                  x={r.x + 1} y={r.y + 1}
+                  width={Math.max(r.w - 2, 1)} height={Math.max(r.h - 2, 1)}
+                  rx={4} fill="none"
+                  stroke="#ffffff" strokeWidth={3} strokeOpacity={0.15}
+                />
+              )}
+              {showLabel && (
+                <text
+                  x={r.x + r.w / 2} y={r.y + r.h / 2 + (showPct ? -6 : 4)}
+                  textAnchor="middle" dominantBaseline="middle"
+                  fontSize={Math.min(Math.max(r.w / 5, 9), 15)}
+                  fontWeight={isRLC ? "800" : "700"}
+                  fill={t > 0.4 ? "#0f172a" : "#f8fafc"}
+                  fontFamily="'Space Grotesk', sans-serif"
+                  style={{ pointerEvents:"none" }}>
+                  {r.token}
+                </text>
+              )}
+              {showPct && (
+                <text
+                  x={r.x + r.w / 2} y={r.y + r.h / 2 + 10}
+                  textAnchor="middle" dominantBaseline="middle"
+                  fontSize={Math.min(Math.max(r.w / 7, 8), 11)}
+                  fontWeight="500"
+                  fill={t > 0.4 ? "rgba(15,23,42,0.75)" : "rgba(248,250,252,0.75)"}
+                  fontFamily="'DM Mono', monospace"
+                  style={{ pointerEvents:"none" }}>
+                  {r.pct.toFixed(1)}%
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Tooltip hover */}
+      {hovered && (() => {
+        const item = items.find(d => d.token === hovered);
+        if (!item) return null;
+        const t = maxVal > minVal ? (item.value - minVal) / (maxVal - minVal) : 0.5;
+        return (
+          <div style={{ marginTop:8, background:"#0a1628", border:"1px solid rgba(255,255,255,0.1)",
+            borderRadius:8, padding:"8px 14px", fontSize:11,
+            display:"flex", justifyContent:"space-between", alignItems:"center", gap:24 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <div style={{ width:10, height:10, borderRadius:3, background:heatColor(t) }}/>
+              <span style={{ fontWeight:700, color:"#f8fafc", fontFamily:"'Space Grotesk',sans-serif" }}>
+                {item.token}
+                {item.token === "RLC" && <span style={{ color:"#00c2ff", marginLeft:6, fontSize:9 }}>← iExec</span>}
+              </span>
+            </div>
+            <div style={{ display:"flex", gap:20 }}>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:9, color:"#475569" }}>Part mindshare</div>
+                <div style={{ fontWeight:700, color:heatColor(t), fontFamily:"'Space Grotesk',sans-serif" }}>
+                  {item.pct.toFixed(2)}%
+                </div>
+              </div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:9, color:"#475569" }}>Rang</div>
+                <div style={{ fontWeight:700, color:"#94a3b8", fontFamily:"'Space Grotesk',sans-serif" }}>
+                  #{items.findIndex(d => d.token === hovered) + 1}/10
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 // ─── KPI MODAL ────────────────────────────────────────────────────────────────
 function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPeriod }) {
   const color  = getColor(kpi.dept);
@@ -344,6 +575,7 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
     .filter(h => String(h.kpi_id).trim() === String(kpi.id).trim())
     .sort((a,b) => a.week.localeCompare(b.week)));
   const isToken = kpi.id === "TOKEN_PERF";
+  const isMindshare = String(kpi.id).trim() === "9";
 
   useEffect(() => {
     const fn = e => { if (e.key==="Escape") onClose(); };
@@ -361,7 +593,7 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
       <div onClick={e => e.stopPropagation()} style={{
         background:"linear-gradient(160deg,#0d1f3c 0%,#060d18 100%)",
         border:`1px solid ${color}55`,
-        borderRadius:24, width:"100%", maxWidth:680,
+        borderRadius:24, width:"100%", maxWidth: isMindshare ? 760 : 680,
         position:"relative",
         boxShadow:`0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px ${color}22, inset 0 1px 0 rgba(255,255,255,0.05)`,
         overflow:"hidden",
@@ -489,6 +721,17 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
               : <Sparkline data={kpiHist} color={color} target={kpi.target}/>
             }
           </div>
+
+          {/* Treemap mindshare — KPI 9 uniquement */}
+          {isMindshare && (
+            <>
+              <div style={{ height:1, background:"rgba(255,255,255,0.06)", margin:"24px 0 20px" }}/>
+              <MindshareTreemap
+                breakdown={kpi.breakdown}
+                week={kpi.latestWeek}
+              />
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -586,7 +829,19 @@ export default function Dashboard() {
   useEffect(() => {
     fetchKaitoStatus().then(s => {
       setKaitoEnabled(s.enabled);
-      setKaitoStatus(s.enabled ? "ok" : "disabled");
+      if (s.enabled) {
+        setKaitoStatus("loading");
+        fetchKaitoMindshare().then(data => {
+          if (data) {
+            setKaitoData(prev => ({ ...prev, mindshare: data }));
+            setKaitoStatus("ok");
+          } else {
+            setKaitoStatus("error");
+          }
+        }).catch(() => setKaitoStatus("error"));
+      } else {
+        setKaitoStatus("disabled");
+      }
     });
   }, []);
 
@@ -733,6 +988,8 @@ export default function Dashboard() {
               status: progress_pct>=1?"Done":"In Progress",
               displayLabel: `${weeksAbove}/${totalWeeks} sem. ≥ ${THRESHOLD}%`,
               latestRaw: `${liveVal.toFixed(2)}% • 🔴 Kaito ${liveWeek}`,
+              latestWeek: liveWeek,
+              breakdown: kaitoData.mindshare.detail?.breakdown || [],
               kaitoHistory: augmented };   // ← historique enrichi pour la sparkline
           }
           // ── Fallback Sheets ──
