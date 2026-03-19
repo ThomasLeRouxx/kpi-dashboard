@@ -349,34 +349,38 @@ function TokenChart({ seriesMap, period, setPeriod }) {
 function squarify(items, x, y, w, h) {
   if (items.length === 0) return [];
   const total = items.reduce((s, d) => s + d.value, 0);
-  if (total === 0) return [];
+  if (total === 0 || w <= 0 || h <= 0) return [];
 
   const rects = [];
-  let remaining = [...items];
+  let remaining = [...items].filter(d => d.value > 0); // garde only positifs
   let rx = x, ry = y, rw = w, rh = h;
+  let safetyLimit = 0;
 
-  while (remaining.length > 0) {
+  while (remaining.length > 0 && safetyLimit++ < 100) {
     const isHoriz = rw >= rh;
-    const bandSize = isHoriz ? rw : rh;
     const remainTotal = remaining.reduce((s, d) => s + d.value, 0);
+    if (remainTotal <= 0) break;
 
     // Cherche combien d'items mettre dans la bande courante
-    let best = [], bestWorst = Infinity;
+    let best = [remaining[0]], bestWorst = Infinity;
     for (let i = 1; i <= remaining.length; i++) {
       const band = remaining.slice(0, i);
       const bandTotal = band.reduce((s, d) => s + d.value, 0);
-      const scale = (rw * rh) / remainTotal;
+      if (bandTotal <= 0) break;
       const bandW = isHoriz ? (bandTotal / remainTotal) * rw : rw;
       const bandH = isHoriz ? rh : (bandTotal / remainTotal) * rh;
       const worst = band.reduce((m, d) => {
         const a = (d.value / bandTotal) * (isHoriz ? bandH : bandW);
         const b2 = isHoriz ? bandH : bandW;
+        if (a <= 0) return m;
         const ratio = Math.max(b2 / a, a / b2);
         return Math.max(m, ratio);
       }, 0);
       if (worst < bestWorst) { bestWorst = worst; best = band; }
       else break;
     }
+
+    if (best.length === 0) break; // sécurité anti boucle infinie
 
     // Place les items de la bande
     const bandTotal = best.reduce((s, d) => s + d.value, 0);
@@ -444,7 +448,13 @@ function MindshareTreemap({ breakdown, week, kaitoStatus }) {
     .map(d => ({ token: d.token, value: d.value, pct: total > 0 ? (d.value / total) * 100 : 0 }))
     .sort((a, b) => b.value - a.value);
 
-  const rects = squarify(items, PAD, PAD, W - PAD * 2, H - PAD * 2);
+  const rects = (() => {
+    try {
+      return squarify(items, PAD, PAD, W - PAD * 2, H - PAD * 2);
+    } catch(e) {
+      return [];
+    }
+  })();
   const maxVal = Math.max(...items.map(d => d.value));
   const minVal = Math.min(...items.map(d => d.value));
 
@@ -510,7 +520,7 @@ function MindshareTreemap({ breakdown, week, kaitoStatus }) {
                   textAnchor="middle" dominantBaseline="middle"
                   fontSize={Math.min(Math.max(r.w / 5, 9), 15)}
                   fontWeight={isRLC ? "800" : "700"}
-                  fill={t > 0.4 ? "#0f172a" : "#1D1D24"}
+                  fill={t > 0.4 ? "#1D1D24" : "#fff"}
                   fontFamily="'DM Sans', sans-serif"
                   style={{ pointerEvents:"none" }}>
                   {r.token}
@@ -705,7 +715,7 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
           )}
 
           {/* Divider */}
-          <div style={{ height:"0.8px", background:"#1D1D24", marginBottom:20 }}/>
+          <div style={{ height:"0.8px", background:"#e2e8f0", marginBottom:20 }}/>
 
           {/* Chart */}
           <div>
@@ -729,7 +739,7 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
           {/* Treemap mindshare — KPI 9 uniquement */}
           {isMindshare && (
             <>
-              <div style={{ height:"0.8px", background:"#1D1D24", margin:"24px 0 20px" }}/>
+              <div style={{ height:"0.8px", background:"#e2e8f0", margin:"24px 0 20px" }}/>
               <MindshareTreemap
                 breakdown={kpi.breakdown}
                 week={kpi.latestWeek || kpi.latestRaw?.match(/Kaito ([\w-]+)/)?.[1]}
