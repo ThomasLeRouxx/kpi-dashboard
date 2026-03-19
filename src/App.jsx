@@ -571,7 +571,7 @@ function MindshareTreemap({ breakdown, week, kaitoStatus }) {
 }
 
 // ─── KPI MODAL ────────────────────────────────────────────────────────────────
-function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPeriod }) {
+function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPeriod, kaitoStatus }) {
   const color  = getColor(kpi.dept);
   const status = statusConfig[kpi.status] || statusConfig["Not Started"];
   const pct    = Math.round(Math.min(parseFloat(kpi.progress_pct||0)*100, 100));
@@ -1099,11 +1099,6 @@ export default function Dashboard() {
         button{font-family:inherit}
       `}</style>
 
-      {modal && (
-        <KpiModal kpi={modal} history={history} onClose={() => setModal(null)}
-          tokenData={tokenData} tokenPeriod={tokenPeriod} setTokenPeriod={setTokenPeriod}/>
-      )}
-
       <div style={{ maxWidth:1200, margin:"0 auto" }}>
 
         {/* Header */}
@@ -1252,6 +1247,12 @@ export default function Dashboard() {
           IEXEC · STRATEGIC KPI DASHBOARD · {week} 2026 · DONNÉES LIVE GOOGLE SHEETS · AUTO-REFRESH 5MIN
         </div>
       </div>
+
+      {modal && (
+        <KpiModal kpi={modal} history={history} onClose={() => setModal(null)}
+          tokenData={tokenData} tokenPeriod={tokenPeriod} setTokenPeriod={setTokenPeriod}
+          kaitoStatus={kaitoStatus}/>
+      )}
     </div>
   );
 }
