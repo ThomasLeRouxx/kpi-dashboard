@@ -26,10 +26,10 @@ async function fetchKaitoMindshare() {
 
 // ─── COINGECKO ────────────────────────────────────────────────────────────────
 const TOKENS = [
-  { id: "iexec-rlc",    symbol: "RLC",  name: "iExec RLC", color: "#00c2ff", isMain: true  },
-  { id: "oasis-network", symbol: "ROSE", name: "Oasis",     color: "#a78bfa", isMain: false },
-  { id: "secret",        symbol: "SCRT", name: "Secret",    color: "#34d399", isMain: false },
-  { id: "pha",           symbol: "PHA",  name: "Phala",     color: "#f59e0b", isMain: false },
+  { id: "iexec-rlc",    symbol: "RLC",  name: "iExec RLC", color: "#FCD15A", isMain: true  },
+  { id: "oasis-network", symbol: "ROSE", name: "Oasis",     color: "#8B5CF6", isMain: false },
+  { id: "secret",        symbol: "SCRT", name: "Secret",    color: "#10B981", isMain: false },
+  { id: "pha",           symbol: "PHA",  name: "Phala",     color: "#F59E0B", isMain: false },
 ];
 
 async function fetchTokenHistory(coinId, days) {
@@ -68,16 +68,16 @@ function col(r, ...keys) {
 
 // ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
 const deptColors = {
-  Tech: "#00c2ff", Support: "#a78bfa", Sales: "#34d399",
-  Ecosystem: "#f59e0b", DevRel: "#fb7185", Marketing: "#38bdf8",
-  Token: "#e879f9",
+  Tech: "#3B82F6", Support: "#8B5CF6", Sales: "#10B981",
+  Ecosystem: "#F59E0B", DevRel: "#EF4444", Marketing: "#FCD15A",
+  Token: "#EC4899",
 };
-const getColor = (dept) => deptColors[dept] || "#94a3b8";
+const getColor = (dept) => deptColors[dept] || "#94A3B8";
 
 const statusConfig = {
-  "Done":        { label: "✓ Done",       color: "#34d399", bg: "rgba(52,211,153,0.12)"  },
-  "In Progress": { label: "⟳ En cours",   color: "#f59e0b", bg: "rgba(245,158,11,0.12)"  },
-  "Not Started": { label: "○ À démarrer", color: "#64748b", bg: "rgba(100,116,139,0.12)" },
+  "Done":        { label: "✓ Done",       color: "#10B981", bg: "rgba(16,185,129,0.1)"  },
+  "In Progress": { label: "⟳ En cours",   color: "#F59E0B", bg: "rgba(245,158,11,0.1)"  },
+  "Not Started": { label: "○ À démarrer", color: "#94A3B8", bg: "rgba(148,163,184,0.1)" },
 };
 
 const fmt = (val, type) => {
@@ -94,7 +94,7 @@ function RadialProgress({ pct, color, size = 52 }) {
   const dash = (Math.min(Math.abs(pct),100)/100)*circ;
   return (
     <svg width={size} height={size} style={{ transform:"rotate(-90deg)" }}>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="5"/>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#f0f2f5" strokeWidth="5"/>
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="5"
         strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
         style={{ transition:"stroke-dasharray 0.8s cubic-bezier(0.4,0,0.2,1)" }}/>
@@ -107,10 +107,10 @@ function Sparkline({ data, color, target }) {
   const [tooltip, setTooltip] = useState(null);
   if (!data || data.length === 0) {
     return (
-      <div style={{ height:130, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", color:"#334155", fontSize:12, gap:8 }}>
+      <div style={{ height:130, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", color:"#7A8299", fontSize:12, gap:8 }}>
         <span style={{ fontSize:24 }}>📭</span>
         <span>Aucun historique disponible</span>
-        <span style={{ fontSize:10, color:"#1e3a5f" }}>Ajoutez des données dans l'onglet Weekly_Snapshot</span>
+        <span style={{ fontSize:10, color:"#b0bec8" }}>Ajoutez des données dans l'onglet Weekly_Snapshot</span>
       </div>
     );
   }
@@ -141,8 +141,8 @@ function Sparkline({ data, color, target }) {
           const y = pad.top + t*iH, v = maxV - t*(maxV-minV);
           return (
             <g key={t}>
-              <line x1={pad.left} y1={y} x2={pad.left+iW} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
-              <text x={pad.left-5} y={y+4} fontSize="8" fill="#334155" textAnchor="end">
+              <line x1={pad.left} y1={y} x2={pad.left+iW} y2={y} stroke="rgba(0,0,0,0.05)" strokeWidth="1"/>
+              <text x={pad.left-5} y={y+4} fontSize="8" fill="#7A8299" textAnchor="end">
                 {v>=1000?(v/1000).toFixed(0)+"K":Math.round(v)}
               </text>
             </g>
@@ -157,14 +157,14 @@ function Sparkline({ data, color, target }) {
         <polygon points={areaPts} fill={`url(#${gradId})`}/>
         <polyline points={linePts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
         {values.map((v,i) => (
-          <circle key={i} cx={xS(i)} cy={yS(v)} r={tooltip===i?5:3.5} fill={color} stroke="#060d18" strokeWidth="2"
+          <circle key={i} cx={xS(i)} cy={yS(v)} r={tooltip===i?5:3.5} fill={color} stroke="#fff" strokeWidth="2"
             style={{ cursor:"crosshair", transition:"r 0.15s" }}
             onMouseEnter={() => setTooltip(i)} onMouseLeave={() => setTooltip(null)}/>
         ))}
         {tooltip !== null && (
           <g>
             <line x1={xS(tooltip)} y1={pad.top} x2={xS(tooltip)} y2={pad.top+iH} stroke={color} strokeWidth="1" strokeDasharray="3 3" opacity="0.4"/>
-            <rect x={xS(tooltip)-32} y={yS(values[tooltip])-32} width={64} height={22} rx={5} fill="#0a1628" stroke={color} strokeWidth="0.8"/>
+            <rect x={xS(tooltip)-32} y={yS(values[tooltip])-32} width={64} height={22} rx={5} fill="#fff" stroke={color} strokeWidth="0.8"/>
             <text x={xS(tooltip)} y={yS(values[tooltip])-17} fontSize="9.5" fill={color} textAnchor="middle" fontWeight="700">
               {values[tooltip]>=1000?(values[tooltip]/1000).toFixed(1)+"K":values[tooltip]}
             </text>
@@ -172,11 +172,11 @@ function Sparkline({ data, color, target }) {
         )}
         {weeks.map((w,i) => {
           const show = values.length<=6||i===0||i===weeks.length-1||i%Math.ceil(weeks.length/5)===0;
-          return show ? <text key={i} x={xS(i)} y={H-4} fontSize="8" fill="#334155" textAnchor="middle">{w}</text> : null;
+          return show ? <text key={i} x={xS(i)} y={H-4} fontSize="8" fill="#7A8299" textAnchor="middle">{w}</text> : null;
         })}
       </svg>
       {tooltip !== null && (
-        <div style={{ position:"absolute", bottom:28, left:0, right:0, textAlign:"center", fontSize:9, color:"#475569" }}>
+        <div style={{ position:"absolute", bottom:28, left:0, right:0, textAlign:"center", fontSize:9, color:"#7A8299" }}>
           {weeks[tooltip]}
         </div>
       )}
@@ -234,7 +234,7 @@ function TokenChart({ seriesMap, period, setPeriod }) {
 
   if (allSeries.length === 0) {
     return (
-      <div style={{ height:160, display:"flex", alignItems:"center", justifyContent:"center", color:"#334155", fontSize:12 }}>
+      <div style={{ height:160, display:"flex", alignItems:"center", justifyContent:"center", color:"#7A8299", fontSize:12 }}>
         <span>⟳ Chargement des données crypto...</span>
       </div>
     );
@@ -246,7 +246,7 @@ function TokenChart({ seriesMap, period, setPeriod }) {
       <div style={{ display:"flex", gap:6, marginBottom:12 }}>
         {periods.map(p => (
           <button key={p.label} onClick={() => setPeriod(p.days)}
-            style={{ padding:"4px 12px", borderRadius:6, fontSize:10, fontWeight:600, border:`1px solid ${period===p.days?"#e879f9":"rgba(255,255,255,0.1)"}`, background:period===p.days?"rgba(232,121,249,0.15)":"transparent", color:period===p.days?"#e879f9":"#64748b", cursor:"pointer", transition:"all 0.2s" }}>
+            style={{ padding:"4px 12px", borderRadius:6, fontSize:10, fontWeight:600, border:`0.8px solid ${period===p.days?"#FCD15A":"#d1d8e0"}`, background:period===p.days?"#FCD15A":"#fff", color:"#1D1D24", cursor:"pointer", transition:"all 0.2s" }}>
             {p.label}
           </button>
         ))}
@@ -280,9 +280,9 @@ function TokenChart({ seriesMap, period, setPeriod }) {
           return (
             <g key={t}>
               <line x1={pad.left} y1={y} x2={pad.left+iW} y2={y}
-                stroke={isZero ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)"}
+                stroke={isZero ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.05)"}
                 strokeWidth={isZero ? 1.5 : 1} strokeDasharray={isZero ? "none" : "none"}/>
-              <text x={pad.left-5} y={y+3} fontSize="7.5" fill="#334155" textAnchor="end">
+              <text x={pad.left-5} y={y+3} fontSize="7.5" fill="#b0bec8" textAnchor="end">
                 {v >= 0 ? "+" : ""}{v.toFixed(0)}%
               </text>
             </g>
@@ -290,7 +290,7 @@ function TokenChart({ seriesMap, period, setPeriod }) {
         })}
 
         {/* Zero line label */}
-        <text x={pad.left-5} y={zeroY+3} fontSize="7.5" fill="#475569" textAnchor="end">0%</text>
+        <text x={pad.left-5} y={zeroY+3} fontSize="7.5" fill="#7A8299" textAnchor="end">0%</text>
 
         {/* Lines */}
         {allSeries.map(s => {
@@ -313,7 +313,7 @@ function TokenChart({ seriesMap, period, setPeriod }) {
         {tooltip && allSeries.map(s => {
           const d = s.data[tooltip.idx];
           if (!d) return null;
-          return <circle key={s.symbol} cx={xS(tooltip.idx)} cy={yS(d.pct)} r={3.5} fill={s.color} stroke="#060d18" strokeWidth="1.5"/>;
+          return <circle key={s.symbol} cx={xS(tooltip.idx)} cy={yS(d.pct)} r={3.5} fill={s.color} stroke="#fff" strokeWidth="1.5"/>;
         })}
 
         {/* X axis labels */}
@@ -321,14 +321,14 @@ function TokenChart({ seriesMap, period, setPeriod }) {
           const d = baseSeries.data[i];
           if (!d) return null;
           const label = new Date(d.ts).toLocaleDateString("fr-FR", { day:"numeric", month:"short" });
-          return <text key={i} x={xS(i)} y={H-4} fontSize="7.5" fill="#334155" textAnchor="middle">{label}</text>;
+          return <text key={i} x={xS(i)} y={H-4} fontSize="7.5" fill="#b0bec8" textAnchor="middle">{label}</text>;
         })}
       </svg>
 
       {/* Tooltip box */}
       {tooltip && (
-        <div style={{ background:"#0a1628", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, padding:"8px 12px", fontSize:10, marginTop:4 }}>
-          <div style={{ color:"#475569", marginBottom:5, fontSize:9 }}>{tooltip.date}</div>
+        <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:8, padding:"8px 12px", fontSize:10, marginTop:4, boxShadow:"0 4px 16px rgba(0,0,0,0.08)" }}>
+          <div style={{ color:"#7A8299", marginBottom:5, fontSize:9, fontFamily:"'IBM Plex Mono',monospace" }}>{tooltip.date}</div>
           {tooltip.items.map((item, i) => (
             <div key={item.symbol} style={{ display:"flex", justifyContent:"space-between", gap:16, marginBottom:i<tooltip.items.length-1?3:0 }}>
               <span style={{ color:item.color, fontWeight:700 }}>{item.symbol} {i===0?"🥇":i===1?"🥈":i===2?"🥉":"  "}</span>
@@ -418,18 +418,22 @@ function heatColor(t) {
   }
 }
 
-function MindshareTreemap({ breakdown, week }) {
+function MindshareTreemap({ breakdown, week, kaitoStatus }) {
   const [hovered, setHovered] = useState(null);
   const W = 560, H = 220;
   const PAD = 2;
 
   if (!breakdown || breakdown.length === 0) {
+    const msg = kaitoStatus === "loading" ? "⟳ Chargement Kaito..."
+      : kaitoStatus === "disabled"        ? "○ Kaito désactivé — clé API non configurée"
+      : kaitoStatus === "error"           ? "⚠ Erreur Kaito — vérifier la clé API"
+      :                                     "Données Kaito non disponibles";
     return (
       <div style={{ height: H, display:"flex", alignItems:"center", justifyContent:"center",
-        color:"#334155", fontSize:12, flexDirection:"column", gap:8 }}>
-        <span style={{ fontSize:24 }}>📭</span>
-        <span>Données Kaito non disponibles</span>
-        <span style={{ fontSize:10, color:"#1e3a5f" }}>Vérifier la clé API Kaito dans Vercel</span>
+        color:"#7A8299", fontSize:12, flexDirection:"column", gap:8,
+        background:"#f9fafb", borderRadius:10, border:"0.8px solid #e2e8f0" }}>
+        <span style={{ fontSize:24 }}>{kaitoStatus === "loading" ? "⟳" : kaitoStatus === "disabled" ? "○" : "📭"}</span>
+        <span>{msg}</span>
       </div>
     );
   }
@@ -448,25 +452,25 @@ function MindshareTreemap({ breakdown, week }) {
     <div style={{ position:"relative" }}>
       {/* Label section */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-        <div style={{ fontSize:10, color:"#475569", letterSpacing:"0.12em", textTransform:"uppercase",
-          display:"flex", alignItems:"center", gap:8 }}>
+        <div style={{ fontSize:10, color:"#7A8299", letterSpacing:"0.12em", textTransform:"uppercase",
+          display:"flex", alignItems:"center", gap:8, fontFamily:"'IBM Plex Mono',monospace" }}>
           <span>🟩</span>
           <span>Répartition Mindshare — Privacy Infra</span>
-          {week && <span style={{ color:"#38bdf8", background:"rgba(56,189,248,0.1)",
-            border:"1px solid rgba(56,189,248,0.2)", borderRadius:6, padding:"2px 8px", fontSize:9 }}>{week}</span>}
+          {week && <span style={{ color:"#7A8299", background:"#f4f6fa",
+            border:"0.8px solid #d1d8e0", borderRadius:5, padding:"2px 8px", fontSize:9, fontFamily:"'IBM Plex Mono',monospace" }}>{week}</span>}
         </div>
         {/* Légende couleur */}
         <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-          <span style={{ fontSize:9, color:"#475569" }}>faible</span>
+          <span style={{ fontSize:9, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>faible</span>
           <div style={{ width:80, height:8, borderRadius:4, background:"linear-gradient(90deg,rgb(239,68,68),rgb(239,190,68),rgb(34,197,68))" }}/>
-          <span style={{ fontSize:9, color:"#475569" }}>fort</span>
+          <span style={{ fontSize:9, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>fort</span>
         </div>
       </div>
 
       {/* SVG treemap */}
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block", borderRadius:10, overflow:"hidden" }}>
         {/* Fond */}
-        <rect x={0} y={0} width={W} height={H} fill="rgba(255,255,255,0.02)" rx={8}/>
+        <rect x={0} y={0} width={W} height={H} fill="#f9fafb" rx={8}/>
 
         {rects.map((r, i) => {
           const t = maxVal > minVal ? (r.value - minVal) / (maxVal - minVal) : 0.5;
@@ -506,8 +510,8 @@ function MindshareTreemap({ breakdown, week }) {
                   textAnchor="middle" dominantBaseline="middle"
                   fontSize={Math.min(Math.max(r.w / 5, 9), 15)}
                   fontWeight={isRLC ? "800" : "700"}
-                  fill={t > 0.4 ? "#0f172a" : "#f8fafc"}
-                  fontFamily="'Space Grotesk', sans-serif"
+                  fill={t > 0.4 ? "#0f172a" : "#1D1D24"}
+                  fontFamily="'DM Sans', sans-serif"
                   style={{ pointerEvents:"none" }}>
                   {r.token}
                 </text>
@@ -519,7 +523,7 @@ function MindshareTreemap({ breakdown, week }) {
                   fontSize={Math.min(Math.max(r.w / 7, 8), 11)}
                   fontWeight="500"
                   fill={t > 0.4 ? "rgba(15,23,42,0.75)" : "rgba(248,250,252,0.75)"}
-                  fontFamily="'DM Mono', monospace"
+                  fontFamily="'IBM Plex Mono', monospace"
                   style={{ pointerEvents:"none" }}>
                   {r.pct.toFixed(1)}%
                 </text>
@@ -535,26 +539,26 @@ function MindshareTreemap({ breakdown, week }) {
         if (!item) return null;
         const t = maxVal > minVal ? (item.value - minVal) / (maxVal - minVal) : 0.5;
         return (
-          <div style={{ marginTop:8, background:"#0a1628", border:"1px solid rgba(255,255,255,0.1)",
+          <div style={{ marginTop:8, background:"#fff", border:"0.8px solid #d1d8e0",
             borderRadius:8, padding:"8px 14px", fontSize:11,
-            display:"flex", justifyContent:"space-between", alignItems:"center", gap:24 }}>
+            display:"flex", justifyContent:"space-between", alignItems:"center", gap:24, boxShadow:"0 4px 16px rgba(0,0,0,0.07)" }}>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <div style={{ width:10, height:10, borderRadius:3, background:heatColor(t) }}/>
-              <span style={{ fontWeight:700, color:"#f8fafc", fontFamily:"'Space Grotesk',sans-serif" }}>
+              <span style={{ fontWeight:700, color:"#1D1D24", fontFamily:"'DM Sans',sans-serif" }}>
                 {item.token}
-                {item.token === "RLC" && <span style={{ color:"#00c2ff", marginLeft:6, fontSize:9 }}>← iExec</span>}
+                {item.token === "RLC" && <span style={{ color:"#FCD15A", marginLeft:6, fontSize:9 }}>← iExec</span>}
               </span>
             </div>
             <div style={{ display:"flex", gap:20 }}>
               <div style={{ textAlign:"right" }}>
-                <div style={{ fontSize:9, color:"#475569" }}>Part mindshare</div>
-                <div style={{ fontWeight:700, color:heatColor(t), fontFamily:"'Space Grotesk',sans-serif" }}>
+                <div style={{ fontSize:9, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>Part mindshare</div>
+                <div style={{ fontWeight:700, color:heatColor(t), fontFamily:"'DM Sans',sans-serif" }}>
                   {item.pct.toFixed(2)}%
                 </div>
               </div>
               <div style={{ textAlign:"right" }}>
-                <div style={{ fontSize:9, color:"#475569" }}>Rang</div>
-                <div style={{ fontWeight:700, color:"#94a3b8", fontFamily:"'Space Grotesk',sans-serif" }}>
+                <div style={{ fontSize:9, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>Rang</div>
+                <div style={{ fontWeight:700, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>
                   #{items.findIndex(d => d.token === hovered) + 1}/10
                 </div>
               </div>
@@ -585,22 +589,22 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
 
   return (
     <div onClick={onClose} style={{
-      position:"fixed", inset:0, background:"rgba(0,0,0,0.85)",
-      backdropFilter:"blur(12px)", zIndex:9999,
+      position:"fixed", inset:0, background:"rgba(29,29,36,0.4)",
+      backdropFilter:"blur(8px)", zIndex:9999,
       display:"flex", alignItems:"center", justifyContent:"center", padding:"24px 16px",
       overflowY:"auto",
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        background:"linear-gradient(160deg,#0d1f3c 0%,#060d18 100%)",
-        border:`1px solid ${color}55`,
+        background:"#fff",
+        border:`0.8px solid #d1d8e0`,
         borderRadius:24, width:"100%", maxWidth: isMindshare ? 760 : 680,
         position:"relative",
-        boxShadow:`0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px ${color}22, inset 0 1px 0 rgba(255,255,255,0.05)`,
+        boxShadow:"0 20px 60px rgba(0,0,0,0.12), 0 4px 20px rgba(0,0,0,0.06)",
         overflow:"hidden",
       }}>
 
         {/* Bande colorée en haut */}
-        <div style={{ height:4, background:`linear-gradient(90deg,${color},${color}44,transparent)`, width:"100%" }}/>
+        <div style={{ height:3, background:`linear-gradient(90deg,${color},${color}66,transparent)`, width:"100%" }}/>
 
         {/* Contenu */}
         <div style={{ padding:"28px 32px 32px" }}>
@@ -610,20 +614,20 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
             <div style={{ flex:1, paddingRight:16 }}>
               <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
                 <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.15em", color, textTransform:"uppercase",
-                  background:`${color}18`, border:`1px solid ${color}33`, borderRadius:6, padding:"3px 8px" }}>
+                  background:`${color}12`, border:`0.8px solid ${color}44`, borderRadius:5, padding:"3px 8px", fontFamily:"'IBM Plex Mono',monospace" }}>
                   {kpi.dept}
                 </div>
-                <div style={{ fontSize:10, color:"#475569", letterSpacing:"0.1em", textTransform:"uppercase" }}>
+                <div style={{ fontSize:10, color:"#7A8299", letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:"'IBM Plex Mono',monospace" }}>
                   {kpi.type}
                 </div>
               </div>
-              <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:20, fontWeight:700, color:"#f8fafc", lineHeight:1.3 }}>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:20, fontWeight:700, color:"#1D1D24", lineHeight:1.3 }}>
                 {kpi.name}
               </div>
             </div>
             <button onClick={onClose} style={{
-              background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)",
-              borderRadius:10, width:34, height:34, cursor:"pointer", color:"#64748b",
+              background:"#f4f6fa", border:"0.8px solid #d1d8e0",
+              borderRadius:8, width:34, height:34, cursor:"pointer", color:"#7A8299",
               fontSize:16, display:"flex", alignItems:"center", justifyContent:"center",
               fontFamily:"inherit", flexShrink:0, transition:"all 0.2s",
             }}>✕</button>
@@ -633,26 +637,26 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
           <div style={{
             display:"grid", gridTemplateColumns: isToken ? "1fr auto" : "1fr auto auto",
             gap:16, alignItems:"center",
-            background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.06)",
-            borderRadius:14, padding:"18px 20px", marginBottom:20,
+            background:"#f9fafb", border:"0.8px solid #e2e8f0",
+            borderRadius:10, padding:"18px 20px", marginBottom:20,
           }}>
             <div>
-              <div style={{ fontSize:11, color:"#475569", marginBottom:6, letterSpacing:"0.05em" }}>
+              <div style={{ fontSize:11, color:"#7A8299", marginBottom:6, letterSpacing:"0.05em" }}>
                 {isToken ? "Classement actuel" : "Progression"}
               </div>
               {kpi.displayLabel ? (
                 <>
-                  <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:22, fontWeight:700, color:"#f8fafc" }}>
+                  <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:22, fontWeight:700, color:"#1D1D24" }}>
                     {kpi.displayLabel}
                   </div>
                   {kpi.latestRaw && (
-                    <div style={{ fontSize:11, color:"#475569", marginTop:4 }}>{kpi.latestRaw}</div>
+                    <div style={{ fontSize:11, color:"#7A8299", marginTop:4 }}>{kpi.latestRaw}</div>
                   )}
                 </>
               ) : (
-                <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:22, fontWeight:700, color:"#f8fafc" }}>
+                <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:22, fontWeight:700, color:"#1D1D24" }}>
                   {fmt(kpi.current, kpi.type)}
-                  <span style={{ fontSize:14, color:"#475569", fontWeight:400, marginLeft:6 }}>
+                  <span style={{ fontSize:14, color:"#7A8299", fontWeight:400, marginLeft:6 }}>
                     / {fmt(kpi.target, kpi.type)}
                   </span>
                 </div>
@@ -661,7 +665,7 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
 
             {!isToken && (
               <div style={{ textAlign:"center" }}>
-                <div style={{ fontSize:11, color:"#475569", marginBottom:6 }}>Complétion</div>
+                <div style={{ fontSize:11, color:"#7A8299", marginBottom:6 }}>Complétion</div>
                 <div style={{ position:"relative", width:64, height:64 }}>
                   <RadialProgress pct={pct} color={color} size={64}/>
                   <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
@@ -673,7 +677,7 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
             )}
 
             <div style={{ textAlign:"center" }}>
-              <div style={{ fontSize:11, color:"#475569", marginBottom:6 }}>Statut</div>
+              <div style={{ fontSize:11, color:"#7A8299", marginBottom:6 }}>Statut</div>
               <div style={{ fontSize:11, fontWeight:700, padding:"6px 14px", borderRadius:20,
                 color:status.color, background:status.bg, border:`1px solid ${status.color}33`, whiteSpace:"nowrap" }}>
                 {status.label}
@@ -684,34 +688,34 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
           {/* Barre de progression (hors Token) */}
           {!isToken && (
             <div style={{ marginBottom:24 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:"#334155", marginBottom:6 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:"#7A8299", marginBottom:6, fontFamily:"'IBM Plex Mono',monospace" }}>
                 <span>0%</span>
                 <span style={{ color }}>{pct}% atteint</span>
                 <span>100%</span>
               </div>
-              <div style={{ height:8, background:"rgba(255,255,255,0.05)", borderRadius:8, overflow:"hidden" }}>
+              <div style={{ height:8, background:"#f4f6fa", borderRadius:8, overflow:"hidden", border:"0.8px solid #e2e8f0" }}>
                 <div style={{
                   width:`${pct}%`, height:"100%",
                   background:`linear-gradient(90deg,${color},${color}88)`,
                   borderRadius:8, transition:"width 1s ease",
-                  boxShadow:`0 0 12px ${color}66`,
+                  boxShadow:"none",
                 }}/>
               </div>
             </div>
           )}
 
           {/* Divider */}
-          <div style={{ height:1, background:"rgba(255,255,255,0.06)", marginBottom:20 }}/>
+          <div style={{ height:"0.8px", background:"#1D1D24", marginBottom:20 }}/>
 
           {/* Chart */}
           <div>
-            <div style={{ fontSize:10, color:"#475569", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:16,
-              display:"flex", alignItems:"center", gap:8 }}>
+            <div style={{ fontSize:10, color:"#7A8299", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:16,
+              display:"flex", alignItems:"center", gap:8, fontFamily:"'IBM Plex Mono',monospace" }}>
               <span>📈</span>
               <span>{isToken ? "Performance relative (base 0% au départ)" : "Évolution hebdomadaire"}</span>
               {!isToken && kpiHist.length > 0 && (
-                <span style={{ color, background:`${color}18`, border:`1px solid ${color}33`,
-                  borderRadius:6, padding:"2px 8px", fontSize:9 }}>
+                <span style={{ color, background:`${color}10`, border:`0.8px solid ${color}44`,
+                  borderRadius:5, padding:"2px 8px", fontSize:9, fontFamily:"'IBM Plex Mono',monospace" }}>
                   {kpiHist.length} sem.
                 </span>
               )}
@@ -725,10 +729,11 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
           {/* Treemap mindshare — KPI 9 uniquement */}
           {isMindshare && (
             <>
-              <div style={{ height:1, background:"rgba(255,255,255,0.06)", margin:"24px 0 20px" }}/>
+              <div style={{ height:"0.8px", background:"#1D1D24", margin:"24px 0 20px" }}/>
               <MindshareTreemap
                 breakdown={kpi.breakdown}
-                week={kpi.latestWeek}
+                week={kpi.latestWeek || kpi.latestRaw?.match(/Kaito ([\w-]+)/)?.[1]}
+                kaitoStatus={kaitoStatus}
               />
             </>
           )}
@@ -752,11 +757,11 @@ function KpiCard({ kpi, history, onOpen }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: hovered ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)",
-        border: `1px solid ${hovered ? color+"66" : "rgba(255,255,255,0.07)"}`,
-        borderRadius:16, padding:"18px 20px", transition:"all 0.22s ease",
+        background: hovered ? "#fafbfc" : "#fff",
+        border: `0.8px solid ${hovered ? color : "#d1d8e0"}`,
+        borderRadius:10, padding:"18px 20px", transition:"all 0.22s ease",
         transform: hovered ? "translateY(-2px)" : "translateY(0)",
-        boxShadow: hovered ? `0 8px 32px ${color}22` : "none",
+        boxShadow: hovered ? `0 4px 16px rgba(0,0,0,0.07)` : "none",
         display:"flex", flexDirection:"column", gap:10,
         position:"relative", overflow:"hidden", cursor:"pointer",
       }}>
@@ -764,13 +769,13 @@ function KpiCard({ kpi, history, onOpen }) {
 
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
         <div style={{ flex:1 }}>
-          <div style={{ fontSize:11, fontWeight:700, letterSpacing:"0.1em", color, textTransform:"uppercase", marginBottom:4 }}>
+          <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.1em", color, textTransform:"uppercase", marginBottom:4, fontFamily:"'IBM Plex Mono',monospace" }}>
             {kpi.dept} · {kpi.type}
           </div>
-          <div style={{ fontSize:14, fontWeight:600, color:"#e2e8f0", lineHeight:1.3 }}>{kpi.name}</div>
+          <div style={{ fontSize:14, fontWeight:600, color:"#1D1D24", lineHeight:1.3 }}>{kpi.name}</div>
         </div>
         {isToken ? (
-          <div style={{ fontSize:22, fontWeight:800, fontFamily:"'Space Grotesk',sans-serif", color, flexShrink:0 }}>
+          <div style={{ fontSize:22, fontWeight:800, fontFamily:"'IBM Plex Mono',monospace", color, flexShrink:0 }}>
             {kpi.rank ? `#${kpi.rank}` : "—"}
           </div>
         ) : (
@@ -784,17 +789,17 @@ function KpiCard({ kpi, history, onOpen }) {
       </div>
 
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-        <div style={{ fontSize:11, color:"#94a3b8" }}>
+        <div style={{ fontSize:11, color:"#7A8299" }}>
           {kpi.displayLabel ? (
-            <span style={{ color:"#e2e8f0", fontWeight:600 }}>{kpi.displayLabel}</span>
+            <span style={{ color:"#1D1D24", fontWeight:600 }}>{kpi.displayLabel}</span>
           ) : (
             <>
-              <span style={{ color:"#e2e8f0", fontWeight:600 }}>{fmt(kpi.current, kpi.type)}</span>
+              <span style={{ color:"#1D1D24", fontWeight:600 }}>{fmt(kpi.current, kpi.type)}</span>
               <span> / {fmt(kpi.target, kpi.type)}</span>
             </>
           )}
           {kpi.latestRaw && (
-            <div style={{ fontSize:10, color:"#475569", marginTop:2 }}>{kpi.latestRaw}</div>
+            <div style={{ fontSize:10, color:"#7A8299", marginTop:2 }}>{kpi.latestRaw}</div>
           )}
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -833,8 +838,11 @@ export default function Dashboard() {
         setKaitoStatus("loading");
         fetchKaitoMindshare().then(data => {
           if (data) {
-            setKaitoData(prev => ({ ...prev, mindshare: data }));
+            const newKaitoData = { mindshare: data, tee_rank: null };
+            setKaitoData(newKaitoData);
             setKaitoStatus("ok");
+            // Re-fetch immédiatement avec les données fraîches (évite closure stale)
+            fetchData(newKaitoData);
           } else {
             setKaitoStatus("error");
           }
@@ -914,8 +922,10 @@ export default function Dashboard() {
   };
 
   // ── Fetch Google Sheets ───────────────────────────────────────────────────
-  const fetchData = async () => {
+  const fetchData = async (liveKaitoData = null) => {
     setLoading(true); setError(null);
+    // Utilise les données Kaito passées en param ou le state courant
+    const kaito = liveKaitoData ?? kaitoData;
     try {
       const resMaster = await fetch(csvUrl(GID_MASTER));
       if (!resMaster.ok) throw new Error(`HTTP ${resMaster.status}`);
@@ -975,9 +985,9 @@ export default function Dashboard() {
         if (kid === "9") {
           const THRESHOLD = parseFloat(k.target) || 2.61;
           // ── Kaito live override ──
-          if (kaitoEnabled && kaitoData.mindshare?.value !== null && kaitoData.mindshare?.value !== undefined) {
-            const liveVal   = parseFloat(kaitoData.mindshare.value);
-            const liveWeek  = kaitoData.mindshare.week || "";
+          if (kaitoEnabled && kaito.mindshare?.value !== null && kaito.mindshare?.value !== undefined) {
+            const liveVal   = parseFloat(kaito.mindshare.value);
+            const liveWeek  = kaito.mindshare.week || "";
             // Injecter W-1 dans l'historique si elle n'y est pas déjà
             const alreadyIn = entries.some(e => e.week === liveWeek);
             const augmented = alreadyIn ? entries : [...entries, { week: liveWeek, kpi_id: kid, value: liveVal }];
@@ -989,7 +999,7 @@ export default function Dashboard() {
               displayLabel: `${weeksAbove}/${totalWeeks} sem. ≥ ${THRESHOLD}%`,
               latestRaw: `${liveVal.toFixed(2)}% • 🔴 Kaito ${liveWeek}`,
               latestWeek: liveWeek,
-              breakdown: kaitoData.mindshare.detail?.breakdown || [],
+              breakdown: kaito.mindshare.detail?.breakdown || [],
               kaitoHistory: augmented };   // ← historique enrichi pour la sparkline
           }
           // ── Fallback Sheets ──
@@ -1003,8 +1013,8 @@ export default function Dashboard() {
         }
         if (kid === "10") {
           // ── Kaito live override ──
-          if (kaitoEnabled && kaitoData.tee_rank?.value !== null && kaitoData.tee_rank?.value !== undefined) {
-            const liveRank  = parseFloat(kaitoData.tee_rank.value);
+          if (kaitoEnabled && kaito.tee_rank?.value !== null && kaito.tee_rank?.value !== undefined) {
+            const liveRank  = parseFloat(kaito.tee_rank.value);
             const liveWeek  = kaitoData.tee_rank.week || "";
             const alreadyIn = entries.some(e => e.week === liveWeek);
             const augmented = alreadyIn ? entries : [...entries, { week: liveWeek, kpi_id: kid, value: liveRank }];
@@ -1081,11 +1091,11 @@ export default function Dashboard() {
   const week = `S${Math.ceil((new Date()-new Date(new Date().getFullYear(),0,1))/(7*86400000))}`;
 
   return (
-    <div style={{ minHeight:"100vh", background:"#060d18", fontFamily:"'DM Mono','Courier New',monospace", color:"#e2e8f0", padding:"32px 24px" }}>
+    <div style={{ minHeight:"100vh", background:"#f4f6fa", fontFamily:"'DM Sans','Segoe UI',sans-serif", color:"#1D1D24", padding:"32px 24px" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Space+Grotesk:wght@400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=DM+Sans:wght@400;500;600;700&display=swap');
         *{box-sizing:border-box;margin:0}
-        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:4px}
+        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#d1d8e0;border-radius:4px}
         button{font-family:inherit}
       `}</style>
 
@@ -1097,18 +1107,29 @@ export default function Dashboard() {
       <div style={{ maxWidth:1200, margin:"0 auto" }}>
 
         {/* Header */}
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom:32, flexWrap:"wrap", gap:16 }}>
-          <div>
-            <div style={{ fontSize:11, letterSpacing:"0.25em", color:"#00c2ff", textTransform:"uppercase", marginBottom:6 }}>iExec · Dashboard Stratégique</div>
-            <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:28, fontWeight:700, color:"#f8fafc", letterSpacing:"-0.02em" }}>KPI Hebdomadaires</h1>
+        <div style={{ background:"#fff", borderBottom:"0.8px solid #d1d8e0", margin:"-32px -24px 32px", padding:"16px 24px", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:16 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <circle cx="16" cy="16" r="4.5" fill="#FCD15A"/>
+              <circle cx="9" cy="11" r="3.5" fill="#FCD15A" opacity="0.8"/>
+              <circle cx="23" cy="11" r="3.5" fill="#FCD15A" opacity="0.8"/>
+              <circle cx="9" cy="21" r="3.5" fill="#FCD15A" opacity="0.6"/>
+              <circle cx="23" cy="21" r="3.5" fill="#FCD15A" opacity="0.6"/>
+              <circle cx="16" cy="6" r="2.5" fill="#FCD15A" opacity="0.5"/>
+              <circle cx="16" cy="26" r="2.5" fill="#FCD15A" opacity="0.5"/>
+            </svg>
+            <div>
+            <div style={{ fontSize:11, letterSpacing:"0.12em", color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace", textTransform:"uppercase", marginBottom:6 }}>iExec · Dashboard Stratégique</div>
+            <h1 style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:22, fontWeight:700, color:"#1D1D24", letterSpacing:"0.02em", textTransform:"uppercase" }}>KPI Hebdomadaires</h1>
+            </div>
           </div>
           <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
-            {lastSync && <div style={{ fontSize:11, color:"#475569" }}>🔄 Sync : {lastSync}</div>}
-            <div style={{ fontSize:11, padding:"4px 10px", borderRadius:8, border:"1px solid", ...(
-              kaitoStatus === "ok"       ? { color:"#34d399", borderColor:"rgba(52,211,153,0.3)", background:"rgba(52,211,153,0.08)" } :
-              kaitoStatus === "loading"  ? { color:"#f59e0b", borderColor:"rgba(245,158,11,0.3)",  background:"rgba(245,158,11,0.08)"  } :
-              kaitoStatus === "error"    ? { color:"#fb7185", borderColor:"rgba(251,113,133,0.3)", background:"rgba(251,113,133,0.08)" } :
-                                          { color:"#475569", borderColor:"rgba(100,116,139,0.2)",  background:"transparent" }
+            {lastSync && <div style={{ fontSize:11, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>🔄 Sync : {lastSync}</div>}
+            <div style={{ fontSize:11, padding:"4px 10px", borderRadius:7, border:"0.8px solid", fontFamily:"'IBM Plex Mono',monospace", ...(
+              kaitoStatus === "ok"       ? { color:"#10B981", borderColor:"rgba(16,185,129,0.25)", background:"rgba(16,185,129,0.08)" } :
+              kaitoStatus === "loading"  ? { color:"#F59E0B", borderColor:"rgba(245,158,11,0.25)",  background:"rgba(245,158,11,0.08)"  } :
+              kaitoStatus === "error"    ? { color:"#EF4444", borderColor:"rgba(239,68,68,0.25)",   background:"rgba(239,68,68,0.08)" } :
+                                          { color:"#7A8299", borderColor:"#d1d8e0",  background:"transparent" }
             )}}>
               {kaitoStatus === "ok"      ? `🔴 Kaito ${kaitoData.mindshare?.week ?? ""}` :
                kaitoStatus === "loading" ? "⟳ Kaito..." :
@@ -1116,26 +1137,26 @@ export default function Dashboard() {
                                            "○ Kaito désactivé"}
             </div>
             <button onClick={fetchData} disabled={loading}
-              style={{ padding:"8px 16px", background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:10, fontSize:12, color:"#00c2ff", fontWeight:500, cursor:"pointer" }}>
+              style={{ padding:"8px 16px", background:"#FCD15A", border:"none", borderRadius:7, fontSize:12, color:"#1D1D24", fontWeight:600, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
               {loading ? "⟳ Chargement..." : "⟳ Actualiser"}
             </button>
-            <div style={{ padding:"8px 16px", background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:10, fontSize:12, color:"#00c2ff", fontWeight:500 }}>
+            <div style={{ padding:"8px 16px", background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:7, fontSize:12, color:"#1D1D24", fontWeight:500, fontFamily:"'IBM Plex Mono',monospace" }}>
               📅 {week} · 2026
             </div>
           </div>
         </div>
 
         {error && (
-          <div style={{ background:"rgba(251,113,133,0.1)", border:"1px solid rgba(251,113,133,0.3)", borderRadius:12, padding:"16px 20px", marginBottom:24, fontSize:12, color:"#fb7185" }}>
+          <div style={{ background:"rgba(239,68,68,0.05)", border:"0.8px solid rgba(239,68,68,0.3)", borderRadius:10, padding:"16px 20px", marginBottom:24, fontSize:12, color:"#EF4444" }}>
             <strong>⚠️ Erreur :</strong> {error}
-            <div style={{ color:"#94a3b8", marginTop:8 }}>Fichier → Partager → "Toute personne avec le lien" → Lecteur</div>
+            <div style={{ color:"#7A8299", marginTop:8 }}>Fichier → Partager → "Toute personne avec le lien" → Lecteur</div>
           </div>
         )}
 
         {loading && !error && (
-          <div style={{ textAlign:"center", padding:"80px 0", color:"#475569" }}>
+          <div style={{ textAlign:"center", padding:"80px 0", color:"#7A8299" }}>
             <div style={{ fontSize:40, marginBottom:16, animation:"spin 1s linear infinite" }}>⟳</div>
-            <div style={{ fontSize:13 }}>Connexion à Google Sheets...</div>
+            <div style={{ fontSize:13, fontFamily:"'IBM Plex Mono',monospace" }}>Connexion à Google Sheets...</div>
             <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
           </div>
         )}
@@ -1143,27 +1164,27 @@ export default function Dashboard() {
         {!loading && !error && kpis.length > 0 && (<>
 
           {/* Score Banner */}
-          <div style={{ background:"linear-gradient(135deg,rgba(0,194,255,0.08),rgba(10,24,46,0.9))", border:"1px solid rgba(0,194,255,0.2)", borderRadius:20, padding:"28px 32px", marginBottom:24, display:"flex", gap:32, flexWrap:"wrap", alignItems:"center" }}>
+          <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"28px 32px", marginBottom:24, display:"flex", gap:32, flexWrap:"wrap", alignItems:"center" }}>
             <div style={{ flex:1 }}>
-              <div style={{ fontSize:11, letterSpacing:"0.15em", color:"#64748b", textTransform:"uppercase", marginBottom:8 }}>Score d'exécution stratégique</div>
+              <div style={{ fontSize:11, letterSpacing:"0.1em", color:"#7A8299", textTransform:"uppercase", marginBottom:8, fontFamily:"'IBM Plex Mono',monospace" }}>Score d'exécution stratégique</div>
               <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
-                <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:56, fontWeight:700, color:"#00c2ff", lineHeight:1 }}>{Math.round(score*100)}</span>
-                <span style={{ fontSize:24, color:"#00c2ff44" }}>/ 100</span>
+                <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:56, fontWeight:700, color:"#FCD15A", lineHeight:1 }}>{Math.round(score*100)}</span>
+                <span style={{ fontSize:24, color:"#d1d8e0" }}>/ 100</span>
               </div>
-              <div style={{ marginTop:12, height:6, background:"rgba(255,255,255,0.05)", borderRadius:6, overflow:"hidden", maxWidth:400 }}>
-                <div style={{ width:`${Math.round(score*100)}%`, height:"100%", background:"linear-gradient(90deg,#00c2ff,#38bdf8)", borderRadius:6, transition:"width 1s ease" }}/>
+              <div style={{ marginTop:12, height:6, background:"#f4f6fa", borderRadius:6, overflow:"hidden", maxWidth:400 }}>
+                <div style={{ width:`${Math.round(score*100)}%`, height:"100%", background:"linear-gradient(90deg,#FCD15A,#F59E0B)", borderRadius:6, transition:"width 1s ease" }}/>
               </div>
             </div>
             <div style={{ display:"flex", gap:24, flexWrap:"wrap" }}>
               {[
-                {label:"Complétés",   value:doneCount,                          color:"#34d399"},
-                {label:"En cours",    value:inProgCount,                        color:"#f59e0b"},
-                {label:"À démarrer", value:kpis.length-doneCount-inProgCount,  color:"#64748b"},
-                {label:"Total KPIs", value:kpis.length,                        color:"#00c2ff"},
+                {label:"Complétés",   value:doneCount,                          color:"#10B981"},
+                {label:"En cours",    value:inProgCount,                        color:"#F59E0B"},
+                {label:"À démarrer", value:kpis.length-doneCount-inProgCount,  color:"#94A3B8"},
+                {label:"Total KPIs", value:kpis.length,                        color:"#FCD15A"},
               ].map(s => (
                 <div key={s.label} style={{ textAlign:"center" }}>
-                  <div style={{ fontSize:28, fontWeight:700, color:s.color, fontFamily:"'Space Grotesk',sans-serif" }}>{s.value}</div>
-                  <div style={{ fontSize:11, color:"#475569", marginTop:2 }}>{s.label}</div>
+                  <div style={{ fontSize:28, fontWeight:700, color:s.color, fontFamily:"'IBM Plex Mono',monospace" }}>{s.value}</div>
+                  <div style={{ fontSize:11, color:"#7A8299", marginTop:2 }}>{s.label}</div>
                 </div>
               ))}
             </div>
@@ -1173,15 +1194,15 @@ export default function Dashboard() {
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:12, marginBottom:24 }}>
             {deptStats.filter(d => d.count>0).map(d => (
               <div key={d.dept} onClick={() => setFilter(filter===d.dept?"All":d.dept)}
-                style={{ background:filter===d.dept?"rgba(255,255,255,0.08)":"rgba(255,255,255,0.03)", border:`1px solid ${filter===d.dept?d.color+"55":"rgba(255,255,255,0.06)"}`, borderRadius:12, padding:"14px 16px", cursor:"pointer", transition:"all 0.2s" }}>
-                <div style={{ fontSize:10, color:d.color, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>{d.dept}</div>
-                <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:22, fontWeight:700, color:"#f8fafc" }}>
+                style={{ background:filter===d.dept?"rgba(252,209,90,0.08)":"#fff", border:`0.8px solid ${filter===d.dept?d.color:"#d1d8e0"}`, borderRadius:10, padding:"14px 16px", cursor:"pointer", transition:"all 0.2s" }}>
+                <div style={{ fontSize:10, color:d.color, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6, fontFamily:"'IBM Plex Mono',monospace" }}>{d.dept}</div>
+                <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:22, fontWeight:700, color:"#1D1D24" }}>
                   {d.dept === "Token" ? (tokenKpi.rank ? `#${tokenKpi.rank}` : "—") : `${d.score}%`}
                 </div>
-                <div style={{ height:3, background:"rgba(255,255,255,0.05)", borderRadius:4, marginTop:8, overflow:"hidden" }}>
+                <div style={{ height:3, background:"#f4f6fa", borderRadius:4, marginTop:8, overflow:"hidden" }}>
                   <div style={{ width:`${d.score}%`, height:"100%", background:d.color, borderRadius:4 }}/>
                 </div>
-                <div style={{ fontSize:10, color:"#475569", marginTop:6 }}>{d.count} KPI{d.count>1?"s":""}</div>
+                <div style={{ fontSize:10, color:"#7A8299", marginTop:6 }}>{d.count} KPI{d.count>1?"s":""}</div>
               </div>
             ))}
           </div>
@@ -1190,12 +1211,12 @@ export default function Dashboard() {
           <div style={{ display:"flex", gap:8, marginBottom:8, flexWrap:"wrap" }}>
             {depts.map(d => (
               <button key={d} onClick={() => setFilter(d)}
-                style={{ padding:"6px 14px", borderRadius:8, fontSize:11, fontWeight:600, border:`1px solid ${filter===d?"#00c2ff":"rgba(255,255,255,0.1)"}`, background:filter===d?"rgba(0,194,255,0.15)":"transparent", color:filter===d?"#00c2ff":"#64748b", cursor:"pointer", transition:"all 0.2s" }}>
+                style={{ padding:"6px 14px", borderRadius:7, fontSize:11, fontWeight:600, border:`0.8px solid ${filter===d?"#FCD15A":"#d1d8e0"}`, background:filter===d?"#FCD15A":"#fff", color:"#1D1D24", cursor:"pointer", transition:"all 0.2s", fontFamily:"'DM Sans',sans-serif" }}>
                 {d}
               </button>
             ))}
           </div>
-          <div style={{ fontSize:10, color:"#1e3a5f", marginBottom:20 }}>Cliquez sur une carte pour voir l'évolution historique</div>
+          <div style={{ fontSize:10, color:"#7A8299", marginBottom:20, fontFamily:"'IBM Plex Mono',monospace" }}>Cliquez sur une carte pour voir l'évolution historique</div>
 
           {/* KPI Grid */}
           {filter === "All" ? (
@@ -1208,9 +1229,9 @@ export default function Dashboard() {
                   <div key={dept}>
                     <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
                       <div style={{ width:4, height:20, background:c, borderRadius:4 }}/>
-                      <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:13, fontWeight:700, color:c, letterSpacing:"0.08em", textTransform:"uppercase" }}>{dept}</div>
-                      <div style={{ flex:1, height:1, background:`linear-gradient(90deg,${c}33,transparent)` }}/>
-                      <div style={{ fontSize:11, color:"#475569" }}>{dk.length} KPI{dk.length>1?"s":""}</div>
+                      <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12, fontWeight:700, color:c, letterSpacing:"0.08em", textTransform:"uppercase" }}>{dept}</div>
+                      <div style={{ flex:1, height:"0.8px", background:`linear-gradient(90deg,${c}44,transparent)` }}/>
+                      <div style={{ fontSize:11, color:"#7A8299" }}>{dk.length} KPI{dk.length>1?"s":""}</div>
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14 }}>
                       {dk.map(kpi => <KpiCard key={kpi.id} kpi={kpi} history={history} onOpen={setModal}/>)}
@@ -1227,7 +1248,7 @@ export default function Dashboard() {
 
         </>)}
 
-        <div style={{ textAlign:"center", marginTop:24, fontSize:10, color:"#1e3a5f", letterSpacing:"0.1em" }}>
+        <div style={{ textAlign:"center", marginTop:24, fontSize:10, color:"#b0bec8", letterSpacing:"0.1em", fontFamily:"'IBM Plex Mono',monospace" }}>
           IEXEC · STRATEGIC KPI DASHBOARD · {week} 2026 · DONNÉES LIVE GOOGLE SHEETS · AUTO-REFRESH 5MIN
         </div>
       </div>
