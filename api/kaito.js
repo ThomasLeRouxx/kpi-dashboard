@@ -15,7 +15,8 @@
  *
  * Timeout étendu à 60s pour supporter les 10 appels Kaito séquentiels
  */
-export const maxDuration = 60; // Vercel Pro/Hobby : étend le timeout à 60s
+const maxDuration = 60;
+exports.maxDuration = maxDuration; // Vercel Pro/Hobby : étend le timeout à 60s
 
 const KAITO_BASE  = "https://api.kaito.ai/api/v1";
 const SHEET_ID    = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
@@ -135,7 +136,7 @@ async function appendToSheets(accessToken, rows) {
 }
 
 // ─── HANDLER PRINCIPAL ────────────────────────────────────────────────────────
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   if (req.method === "OPTIONS") return res.status(200).end();
