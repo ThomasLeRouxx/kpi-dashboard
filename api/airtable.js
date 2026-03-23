@@ -55,24 +55,28 @@ module.exports = async function handler(req, res) {
     } while (offset);
 
     // Parser les champs utiles
+    // Note: Airtable renvoie les multi-select en array, les checkboxes en boolean
+    const toStr  = v => Array.isArray(v) ? v.join(', ') : (v || '');
+    const toBool = v => v === true || v === 'checked';
+
     const leads = allRecords.map(r => ({
       id:          r.id,
-      name:        r.fields['Lead Name']   || '',
-      company:     r.fields['Company / Org'] || '',
-      website:     r.fields['Website']     || '',
-      twitter:     r.fields['X/Twitter']   || '',
-      owner:       r.fields['Lead']        || '',
-      verticale:   r.fields['Verticale']   || '',
-      usecase:     r.fields['Usecase']     || '',
-      reponse:     r.fields['Réponse']     === 'checked' || r.fields['Réponse'] === true,
-      meetingDone: r.fields['Meeting done'] === 'checked' || r.fields['Meeting done'] === true,
-      stage:       r.fields['Stage']       || '',
-      tvl:         r.fields['TVL']         || '',
-      segment:     r.fields['Lead Segment'] || '',
-      recentNews:  r.fields['Recent News'] || '',
-      blockers:    r.fields['Blockers']    || '',
-      feedback:    r.fields['Feedback']    || '',
-      nextStep:    r.fields['Next Step']   || '',
+      name:        toStr(r.fields['Lead Name']),
+      company:     toStr(r.fields['Company / Org']),
+      website:     toStr(r.fields['Website']),
+      twitter:     toStr(r.fields['X/Twitter']),
+      owner:       toStr(r.fields['Lead']),
+      verticale:   toStr(r.fields['Verticale']),
+      usecase:     toStr(r.fields['Usecase']),
+      reponse:     toBool(r.fields['Réponse']),
+      meetingDone: toBool(r.fields['Meeting done']),
+      stage:       toStr(r.fields['Stage']),
+      tvl:         toStr(r.fields['TVL']),
+      segment:     toStr(r.fields['Lead Segment']),
+      recentNews:  toStr(r.fields['Recent News']),
+      blockers:    toStr(r.fields['Blockers']),
+      feedback:    toStr(r.fields['Feedback']),
+      nextStep:    toStr(r.fields['Next Step']),
     }));
 
     // ── Calculs métriques ─────────────────────────────────────────────────────
