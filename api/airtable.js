@@ -166,7 +166,7 @@ module.exports = async function handler(req, res) {
         verticale:  l.verticale,
         tvl:        l.tvl,
         segment:    l.segment,
-        recentNews: l.recentNews.slice(0, 200), // tronqué pour perf
+        recentNews: (l.recentNews || '').slice(0, 200),
         nextStep:   l.nextStep,
       }));
 
