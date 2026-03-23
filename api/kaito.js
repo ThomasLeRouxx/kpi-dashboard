@@ -52,7 +52,7 @@ function getPrevWeekRange() {
 async function fetchWeeklyMindshare(token, start, end, apiKey) {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000); // 3s max par token
+    const timeout = setTimeout(() => controller.abort(), 8000); // 8s max par token
     const url = `${KAITO_BASE}/mindshare?token=${token}&start_date=${start}&end_date=${end}`;
     const res = await fetch(url, {
       headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
@@ -66,15 +66,20 @@ async function fetchWeeklyMindshare(token, start, end, apiKey) {
   } catch { return 0; }
 }
 
-// Fetch en 2 batches parallèles pour rester sous 10s :
-// batch 1 (5 tokens) + batch 2 (5 tokens) lancés simultanément
+// Fetch en 3 batches parallèles de ~3 tokens — compromis vitesse / fiabilité
 async function fetchInBatches(tokens, start, end, apiKey) {
-  const mid = Math.ceil(tokens.length / 2);
-  const [first, second] = await Promise.all([
-    Promise.all(tokens.slice(0, mid).map(t => fetchWeeklyMindshare(t, start, end, apiKey).then(v => ({ token: t, value: v })))),
-    Promise.all(tokens.slice(mid).map(t => fetchWeeklyMindshare(t, start, end, apiKey).then(v => ({ token: t, value: v })))),
-  ]);
-  return [...first, ...second];
+  const size = 3;
+  const results = [];
+  for (let i = 0; i < tokens.length; i += size) {
+    const batch = tokens.slice(i, i + size);
+    const batchResults = await Promise.all(
+      batch.map(t => fetchWeeklyMindshare(t, start, end, apiKey).then(v => ({ token: t, value: v })))
+    );
+    results.push(...batchResults);
+    // Petit délai entre batches pour éviter rate limiting
+    if (i + size < tokens.length) await new Promise(r => setTimeout(r, 300));
+  }
+  return results;
 }
 
 // ─── GOOGLE SHEETS AUTH (JWT manuel, pas de lib externe) ──────────────────────
