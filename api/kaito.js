@@ -53,18 +53,27 @@ function getPrevWeekRange() {
 async function fetchWeeklyMindshare(token, start, end, apiKey) {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000); // 8s max par token
+    const timeout = setTimeout(() => controller.abort(), 8000);
     const url = `${KAITO_BASE}/mindshare?token=${token}&start_date=${start}&end_date=${end}`;
     const res = await fetch(url, {
       headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
       signal: controller.signal,
     });
     clearTimeout(timeout);
-    if (!res.ok) return 0;
+    if (!res.ok) {
+      console.error(`Kaito ${token}: HTTP ${res.status}`);
+      return 0;
+    }
     const data = await res.json();
-    const vals = Object.values(data?.mindshare || {});
-    return vals.reduce((s, v) => s + (parseFloat(v) || 0), 0);
-  } catch { return 0; }
+    // Log la structure réelle pour diagnostic
+    if (token === "RLC") console.log(`Kaito RLC raw:`, JSON.stringify(data).slice(0, 300));
+    const vals = Object.values(data?.mindshare || data?.data?.mindshare || data || {});
+    const sum = vals.filter(v => typeof v === "number").reduce((s, v) => s + v, 0);
+    return sum;
+  } catch (e) {
+    console.error(`Kaito ${token} error:`, e.message);
+    return 0;
+  }
 }
 
 // Fetch en 3 batches parallèles de ~3 tokens — compromis vitesse / fiabilité
