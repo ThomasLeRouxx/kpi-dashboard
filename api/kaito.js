@@ -208,7 +208,7 @@ module.exports = async function handler(req, res) {
   if (type === "mindshare") {
     try {
       const result = await computeMindshare();
-      res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate");
+      res.setHeader("Cache-Control", "no-store");
       return res.status(200).json({ ...result, fetchedAt: new Date().toISOString() });
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
@@ -216,7 +216,7 @@ module.exports = async function handler(req, res) {
   if (type === "tee_rank") {
     try {
       const result = await computeTeeRank();
-      res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate");
+      res.setHeader("Cache-Control", "no-store");
       return res.status(200).json({ ...result, fetchedAt: new Date().toISOString() });
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
