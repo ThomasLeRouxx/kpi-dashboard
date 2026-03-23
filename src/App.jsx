@@ -24,6 +24,16 @@ async function fetchKaitoMindshare() {
   } catch { return null; }
 }
 
+
+// ─── AIRTABLE ─────────────────────────────────────────────────────────────────
+async function fetchAirtableData() {
+  try {
+    const res = await fetch("/api/airtable");
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
 // ─── COINGECKO ────────────────────────────────────────────────────────────────
 const TOKENS = [
   { id: "iexec-rlc",    symbol: "RLC",  name: "iExec RLC", color: "#FCD15A", isMain: true  },
@@ -422,22 +432,19 @@ function heatColor(t) {
   }
 }
 
-function MindshareTreemap({ breakdown, week, kaitoStatus }) {
+function MindshareTreemap({ breakdown, week }) {
   const [hovered, setHovered] = useState(null);
   const W = 560, H = 220;
   const PAD = 2;
 
   if (!breakdown || breakdown.length === 0) {
-    const msg = kaitoStatus === "loading" ? "⟳ Chargement Kaito..."
-      : kaitoStatus === "disabled"        ? "○ Kaito désactivé — clé API non configurée"
-      : kaitoStatus === "error"           ? "⚠ Erreur Kaito — vérifier la clé API"
-      :                                     "Données Kaito non disponibles";
     return (
       <div style={{ height: H, display:"flex", alignItems:"center", justifyContent:"center",
         color:"#7A8299", fontSize:12, flexDirection:"column", gap:8,
         background:"#f9fafb", borderRadius:10, border:"0.8px solid #e2e8f0" }}>
-        <span style={{ fontSize:24 }}>{kaitoStatus === "loading" ? "⟳" : kaitoStatus === "disabled" ? "○" : "📭"}</span>
-        <span>{msg}</span>
+        <span style={{ fontSize:24 }}>📭</span>
+        <span>Données Kaito non disponibles</span>
+        <span style={{ fontSize:10, color:"#b0bec8", fontFamily:"'IBM Plex Mono',monospace" }}>Vérifier la clé API Kaito dans Vercel</span>
       </div>
     );
   }
@@ -580,8 +587,307 @@ function MindshareTreemap({ breakdown, week, kaitoStatus }) {
   );
 }
 
+
+// ─── SALES DASHBOARD ──────────────────────────────────────────────────────────
+
+function FunnelBar({ data }) {
+  if (!data || data.length === 0) return null;
+  const max = Math.max(...data.map(d => d.count), 1);
+  const stageColors = {
+    'Identified':    '#94A3B8',
+    'Researched':    '#7A8299',
+    'Contacted':     '#3B82F6',
+    'Discovery Call':'#FCD15A',
+    'ETHcc meeting': '#F59E0B',
+    'Not Ready Yet': '#FB923C',
+    'Not Interested':'#EF4444',
+  };
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+      {data.filter(d => d.count > 0).map(d => (
+        <div key={d.stage} style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ width:130, fontSize:11, color:'#7A8299', fontFamily:"'IBM Plex Mono',monospace", textAlign:'right', flexShrink:0 }}>
+            {d.stage}
+          </div>
+          <div style={{ flex:1, height:28, background:'#f4f6fa', borderRadius:6, overflow:'hidden', position:'relative' }}>
+            <div style={{
+              width:`${(d.count/max)*100}%`, height:'100%',
+              background: stageColors[d.stage] || '#94A3B8',
+              borderRadius:6, opacity:0.85,
+              transition:'width 0.8s cubic-bezier(0.4,0,0.2,1)',
+              display:'flex', alignItems:'center', paddingLeft:10,
+            }}>
+              {d.count > 2 && (
+                <span style={{ fontSize:11, fontWeight:700, color: d.stage === 'Discovery Call' || d.stage === 'ETHcc meeting' ? '#1D1D24' : '#fff', fontFamily:"'IBM Plex Mono',monospace" }}>
+                  {d.count}
+                </span>
+              )}
+            </div>
+            {d.count <= 2 && (
+              <span style={{ position:'absolute', left:`${(d.count/max)*100 + 1}%`, top:'50%', transform:'translateY(-50%)', fontSize:11, fontWeight:700, color:'#1D1D24', fontFamily:"'IBM Plex Mono',monospace" }}>
+                {d.count}
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ConversionFlow({ rates, total, totalContacted, totalReponse, totalMeeting }) {
+  const steps = [
+    { label:'Total Leads',  value:total,          pct:100,                    color:'#94A3B8' },
+    { label:'Contactés',    value:totalContacted,  pct:rates.identifiedToContacted, color:'#3B82F6' },
+    { label:'Réponses',     value:totalReponse,    pct:rates.contactedToReponse,    color:'#8B5CF6' },
+    { label:'Meetings',     value:totalMeeting,    pct:rates.reponseToMeeting,      color:'#F59E0B' },
+    { label:'Discovery',    value:null,            pct:rates.meetingToDiscovery,    color:'#FCD15A' },
+  ];
+  return (
+    <div style={{ display:'flex', alignItems:'stretch', gap:0 }}>
+      {steps.map((s, i) => (
+        <div key={s.label} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center' }}>
+          <div style={{
+            width:'100%', padding:'14px 8px', background:'#fff',
+            border:'0.8px solid #d1d8e0', borderRadius:i===0?'10px 0 0 10px':i===steps.length-1?'0 10px 10px 0':'0',
+            borderLeft: i>0 ? 'none' : '0.8px solid #d1d8e0',
+            textAlign:'center', position:'relative',
+          }}>
+            <div style={{ fontSize:10, color:'#7A8299', fontFamily:"'IBM Plex Mono',monospace", textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>
+              {s.label}
+            </div>
+            <div style={{ fontSize:22, fontWeight:700, color:s.color, fontFamily:"'IBM Plex Mono',monospace" }}>
+              {s.value !== null ? s.value : ''}
+            </div>
+            {i > 0 && (
+              <div style={{ fontSize:10, color:s.pct >= 50 ? '#10B981' : s.pct >= 25 ? '#F59E0B' : '#EF4444', fontWeight:600, marginTop:4, fontFamily:"'IBM Plex Mono',monospace" }}>
+                {s.pct}%
+              </div>
+            )}
+            {i < steps.length - 1 && (
+              <div style={{ position:'absolute', right:-12, top:'50%', transform:'translateY(-50%)', zIndex:2, fontSize:16, color:'#d1d8e0' }}>→</div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OwnerCard({ d }) {
+  return (
+    <div style={{ background:'#fff', border:'0.8px solid #d1d8e0', borderRadius:10, padding:'20px 24px' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <div>
+          <div style={{ fontSize:13, fontWeight:700, color:'#1D1D24' }}>{d.owner}</div>
+          <div style={{ fontSize:11, color:'#7A8299', fontFamily:"'IBM Plex Mono',monospace", marginTop:2 }}>{d.total} leads assignés</div>
+        </div>
+        <div style={{ display:'flex', gap:16 }}>
+          {[
+            { label:'Réponse', value:d.tauxRep+'%', color: d.tauxRep >= 30 ? '#10B981' : d.tauxRep >= 15 ? '#F59E0B' : '#EF4444' },
+            { label:'Meeting',  value:d.tauxMeet+'%', color: d.tauxMeet >= 20 ? '#10B981' : d.tauxMeet >= 10 ? '#F59E0B' : '#EF4444' },
+          ].map(m => (
+            <div key={m.label} style={{ textAlign:'center' }}>
+              <div style={{ fontSize:11, color:'#7A8299', fontFamily:"'IBM Plex Mono',monospace", marginBottom:4 }}>{m.label}</div>
+              <div style={{ fontSize:20, fontWeight:700, color:m.color, fontFamily:"'IBM Plex Mono',monospace" }}>{m.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+        {['Contacted','Discovery Call','ETHcc meeting','Not Ready Yet','Not Interested'].map(s => {
+          const n = d.stageBreak[s] || 0;
+          if (!n) return null;
+          const colors = { 'Contacted':'#3B82F6','Discovery Call':'#FCD15A','ETHcc meeting':'#F59E0B','Not Ready Yet':'#FB923C','Not Interested':'#EF4444' };
+          return (
+            <div key={s} style={{ padding:'3px 10px', borderRadius:20, fontSize:10, fontWeight:600, fontFamily:"'IBM Plex Mono',monospace",
+              background:`${colors[s]}15`, color:colors[s], border:`0.8px solid ${colors[s]}44` }}>
+              {n} {s}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ProspectCard({ p }) {
+  const stageColor = p.stage === 'ETHcc meeting' ? '#F59E0B' : '#FCD15A';
+  return (
+    <div style={{ background:'#fff', border:'0.8px solid #d1d8e0', borderRadius:10, padding:'16px 20px',
+      borderLeft:`3px solid ${stageColor}` }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
+        <div>
+          <div style={{ fontSize:14, fontWeight:700, color:'#1D1D24' }}>{p.company}</div>
+          <div style={{ fontSize:11, color:'#7A8299', marginTop:2 }}>{p.verticale} · {p.owner}</div>
+        </div>
+        <div style={{ padding:'3px 10px', borderRadius:20, fontSize:10, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace",
+          background:`${stageColor}15`, color:stageColor, border:`0.8px solid ${stageColor}44`, flexShrink:0 }}>
+          {p.stage}
+        </div>
+      </div>
+      {p.tvl && p.tvl !== '//' && p.tvl !== '' && (
+        <div style={{ fontSize:10, color:'#7A8299', marginBottom:6, fontFamily:"'IBM Plex Mono',monospace" }}>
+          TVL : <span style={{ color:'#1D1D24', fontWeight:600 }}>{p.tvl}</span>
+        </div>
+      )}
+      {p.recentNews && (
+        <div style={{ fontSize:11, color:'#7A8299', lineHeight:1.5,
+          display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
+          {p.recentNews}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SalesDashboard({ data, loading }) {
+  if (loading) return (
+    <div style={{ textAlign:'center', padding:'80px 0', color:'#7A8299' }}>
+      <div style={{ fontSize:40, marginBottom:16 }}>⟳</div>
+      <div style={{ fontSize:13, fontFamily:"'IBM Plex Mono',monospace" }}>Chargement Airtable...</div>
+    </div>
+  );
+
+  if (!data || !data.enabled) return (
+    <div style={{ background:'#fff', border:'0.8px solid #d1d8e0', borderRadius:10, padding:'48px 32px', textAlign:'center' }}>
+      <div style={{ fontSize:32, marginBottom:16 }}>🔌</div>
+      <div style={{ fontSize:16, fontWeight:600, color:'#1D1D24', marginBottom:8 }}>Airtable non connecté</div>
+      <div style={{ fontSize:13, color:'#7A8299', fontFamily:"'IBM Plex Mono',monospace" }}>
+        Ajouter AIRTABLE_API_KEY, AIRTABLE_BASE_ID et AIRTABLE_TABLE_ID dans Vercel → Settings → Environment Variables
+      </div>
+    </div>
+  );
+
+  const { total, totalReponse, totalMeeting, conversionRates, funnel, byOwner, byVerticale, bySegment, topBlockers, activeProspects } = data;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
+
+      {/* ── KPIs rapides ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:12 }}>
+        {[
+          { label:'Total Leads',     value:total,         icon:'📋', color:'#3B82F6' },
+          { label:'Taux Réponse',    value:Math.round(totalReponse/total*100)+'%', icon:'💬', color: Math.round(totalReponse/total*100) >= 25 ? '#10B981' : '#F59E0B' },
+          { label:'Taux Meeting',    value:Math.round(totalMeeting/total*100)+'%', icon:'🤝', color: Math.round(totalMeeting/total*100) >= 20 ? '#10B981' : '#F59E0B' },
+          { label:'Discovery Calls', value:activeProspects.length, icon:'🔍', color:'#FCD15A' },
+          { label:'Réponse→Meeting', value:conversionRates.reponseToMeeting+'%', icon:'📈', color: conversionRates.reponseToMeeting >= 70 ? '#10B981' : '#F59E0B' },
+        ].map(m => (
+          <div key={m.label} style={{ background:'#fff', border:'0.8px solid #d1d8e0', borderRadius:10, padding:'16px 18px' }}>
+            <div style={{ fontSize:18, marginBottom:8 }}>{m.icon}</div>
+            <div style={{ fontSize:24, fontWeight:700, color:m.color, fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{m.value}</div>
+            <div style={{ fontSize:10, color:'#7A8299', marginTop:6, fontFamily:"'IBM Plex Mono',monospace", textTransform:'uppercase', letterSpacing:'0.08em' }}>{m.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Conversion Flow ── */}
+      <div style={{ background:'#fff', border:'0.8px solid #d1d8e0', borderRadius:10, padding:'24px' }}>
+        <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:'#7A8299', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:16 }}>
+          PIPELINE · TAUX DE CONVERSION
+        </div>
+        <ConversionFlow rates={conversionRates} total={total} totalContacted={data.totalContacted} totalReponse={totalReponse} totalMeeting={totalMeeting} />
+      </div>
+
+      {/* ── Funnel + Verticales ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+        <div style={{ background:'#fff', border:'0.8px solid #d1d8e0', borderRadius:10, padding:'24px' }}>
+          <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:'#7A8299', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:20 }}>
+            FUNNEL PAR STAGE
+          </div>
+          <FunnelBar data={funnel} />
+        </div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          {/* Verticales */}
+          <div style={{ background:'#fff', border:'0.8px solid #d1d8e0', borderRadius:10, padding:'20px 24px', flex:1 }}>
+            <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:'#7A8299', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>
+              PAR VERTICALE
+            </div>
+            {byVerticale.filter(v => v.count > 0).sort((a,b) => b.count-a.count).map(v => (
+              <div key={v.verticale} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                <div style={{ fontSize:12, color:'#1D1D24', fontWeight:500 }}>{v.verticale}</div>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <div style={{ width:80, height:6, background:'#f4f6fa', borderRadius:4, overflow:'hidden' }}>
+                    <div style={{ width:`${(v.count/total)*100}%`, height:'100%', background:'#FCD15A', borderRadius:4 }}/>
+                  </div>
+                  <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:'#7A8299', width:20, textAlign:'right' }}>{v.count}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Segments */}
+          <div style={{ background:'#fff', border:'0.8px solid #d1d8e0', borderRadius:10, padding:'20px 24px', flex:1 }}>
+            <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:'#7A8299', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>
+              PAR SEGMENT
+            </div>
+            {bySegment.sort((a,b) => b.count-a.count).map(s => (
+              <div key={s.segment} style={{ marginBottom:10 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                  <div style={{ fontSize:11, color:'#1D1D24' }}>{s.segment}</div>
+                  <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:'#7A8299' }}>{s.count} · {s.meetings} mtg · {s.discovery} disc</div>
+                </div>
+                <div style={{ height:4, background:'#f4f6fa', borderRadius:4, overflow:'hidden' }}>
+                  <div style={{ width:`${(s.count/total)*100}%`, height:'100%', background:'#3B82F6', borderRadius:4 }}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Par commercial ── */}
+      <div>
+        <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:'#7A8299', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>
+          PERFORMANCE PAR COMMERCIAL
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(340px,1fr))', gap:14 }}>
+          {byOwner.sort((a,b) => b.total-a.total).map(d => <OwnerCard key={d.owner} d={d} />)}
+        </div>
+      </div>
+
+      {/* ── Top Prospects ── */}
+      <div>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+          <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:'#7A8299', textTransform:'uppercase', letterSpacing:'0.1em' }}>
+            PROSPECTS ACTIFS — DISCOVERY CALLS & MEETINGS
+          </div>
+          <div style={{ fontSize:11, color:'#FCD15A', fontFamily:"'IBM Plex Mono',monospace", fontWeight:700 }}>
+            {activeProspects.length} en cours
+          </div>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:12 }}>
+          {activeProspects.map(p => <ProspectCard key={p.company} p={p} />)}
+        </div>
+      </div>
+
+      {/* ── Blockers ── */}
+      {topBlockers.length > 0 && (
+        <div style={{ background:'#fff', border:'0.8px solid #d1d8e0', borderRadius:10, padding:'24px' }}>
+          <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:'#7A8299', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:16 }}>
+            PRINCIPAUX BLOCKERS
+          </div>
+          <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+            {topBlockers.map(b => (
+              <div key={b.name} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px',
+                background:'rgba(239,68,68,0.05)', border:'0.8px solid rgba(239,68,68,0.2)', borderRadius:8 }}>
+                <span style={{ fontSize:13 }}>⚠</span>
+                <span style={{ fontSize:12, color:'#EF4444', fontWeight:600 }}>{b.name}</span>
+                <span style={{ fontSize:11, color:'#7A8299', fontFamily:"'IBM Plex Mono',monospace" }}>×{b.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+
 // ─── KPI MODAL ────────────────────────────────────────────────────────────────
-function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPeriod, kaitoStatus }) {
+function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPeriod }) {
   const color  = getColor(kpi.dept);
   const status = statusConfig[kpi.status] || statusConfig["Not Started"];
   const pct    = Math.round(Math.min(parseFloat(kpi.progress_pct||0)*100, 100));
@@ -742,8 +1048,7 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
               <div style={{ height:"0.8px", background:"#e2e8f0", margin:"24px 0 20px" }}/>
               <MindshareTreemap
                 breakdown={kpi.breakdown}
-                week={kpi.latestWeek || kpi.latestRaw?.match(/Kaito ([\w-]+)/)?.[1]}
-                kaitoStatus={kaitoStatus}
+                week={kpi.latestWeek || kpi.latestRaw?.match?.(/Kaito ([\w-]+)/)?.[1]}
               />
             </>
           )}
@@ -825,6 +1130,9 @@ function KpiCard({ kpi, history, onOpen }) {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const [activeTab,     setActiveTab]   = useState("kpis"); // "kpis" | "performance"
+  const [salesData,     setSalesData]    = useState(null);
+  const [salesLoading, setSalesLoading] = useState(false);
   const [kpis,        setKpis]        = useState([]);
   const [history,     setHistory]     = useState([]);
   const [loading,     setLoading]     = useState(true);
@@ -1077,6 +1385,17 @@ export default function Dashboard() {
     return () => clearInterval(iv);
   }, []);
 
+  // ── Fetch Airtable quand on switche sur l'onglet performance ──────────────
+  useEffect(() => {
+    if (activeTab === "performance" && !salesData && !salesLoading) {
+      setSalesLoading(true);
+      fetchAirtableData().then(d => {
+        setSalesData(d);
+        setSalesLoading(false);
+      }).catch(() => setSalesLoading(false));
+    }
+  }, [activeTab]);
+
   const tokenKpi   = buildTokenKpi();
   const allKpis    = [...kpis, tokenKpi];
   const depts      = ["All", ...Object.keys(deptColors)];
@@ -1125,7 +1444,9 @@ export default function Dashboard() {
             </svg>
             <div>
             <div style={{ fontSize:11, letterSpacing:"0.12em", color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace", textTransform:"uppercase", marginBottom:6 }}>iExec · Dashboard Stratégique</div>
-            <h1 style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:22, fontWeight:700, color:"#1D1D24", letterSpacing:"0.02em", textTransform:"uppercase" }}>KPI Hebdomadaires</h1>
+            <h1 style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:22, fontWeight:700, color:"#1D1D24", letterSpacing:"0.02em", textTransform:"uppercase" }}>
+              {activeTab === "kpis" ? "KPI Hebdomadaires" : "Performance · Sales"}
+            </h1>
             </div>
           </div>
           <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
@@ -1151,12 +1472,34 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* ── Navigation onglets ── */}
+        <div style={{ display:"flex", gap:4, marginBottom:28, borderBottom:"0.8px solid #d1d8e0", paddingBottom:0 }}>
+          {[
+            { id:"kpis",        label:"01 · KPI Hebdomadaires" },
+            { id:"performance", label:"02 · Performance Sales"  },
+          ].map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+              padding:"10px 20px", border:"none", background:"transparent",
+              fontSize:12, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700,
+              color: activeTab === tab.id ? "#1D1D24" : "#7A8299",
+              cursor:"pointer", borderBottom: activeTab === tab.id ? "2px solid #FCD15A" : "2px solid transparent",
+              marginBottom:"-0.8px", transition:"all 0.15s", letterSpacing:"0.05em",
+              textTransform:"uppercase",
+            }}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         {error && (
           <div style={{ background:"rgba(239,68,68,0.05)", border:"0.8px solid rgba(239,68,68,0.3)", borderRadius:10, padding:"16px 20px", marginBottom:24, fontSize:12, color:"#EF4444" }}>
             <strong>⚠️ Erreur :</strong> {error}
             <div style={{ color:"#7A8299", marginTop:8 }}>Fichier → Partager → "Toute personne avec le lien" → Lecteur</div>
           </div>
         )}
+
+        {/* ── ONGLET KPI ─────────────────────────────────────────────────── */}
+        {activeTab === "kpis" && (<>
 
         {loading && !error && (
           <div style={{ textAlign:"center", padding:"80px 0", color:"#7A8299" }}>
@@ -1253,15 +1596,21 @@ export default function Dashboard() {
 
         </>)}
 
-        <div style={{ textAlign:"center", marginTop:24, fontSize:10, color:"#b0bec8", letterSpacing:"0.1em", fontFamily:"'IBM Plex Mono',monospace" }}>
+        </>)} {/* fin onglet KPI */}
+
+        {/* ── ONGLET PERFORMANCE ─────────────────────────────────────────────── */}
+        {activeTab === "performance" && (
+          <SalesDashboard data={salesData} loading={salesLoading} />
+        )}
+
+        <div style={{ textAlign:"center", marginTop:40, fontSize:10, color:"#b0bec8", letterSpacing:"0.1em", fontFamily:"'IBM Plex Mono',monospace" }}>
           IEXEC · STRATEGIC KPI DASHBOARD · {week} 2026 · DONNÉES LIVE GOOGLE SHEETS · AUTO-REFRESH 5MIN
         </div>
       </div>
 
       {modal && (
         <KpiModal kpi={modal} history={history} onClose={() => setModal(null)}
-          tokenData={tokenData} tokenPeriod={tokenPeriod} setTokenPeriod={setTokenPeriod}
-          kaitoStatus={kaitoStatus}/>
+          tokenData={tokenData} tokenPeriod={tokenPeriod} setTokenPeriod={setTokenPeriod}/>
       )}
     </div>
   );
