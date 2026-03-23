@@ -37,8 +37,9 @@ function getPrevWeekRange() {
   const now    = new Date();
   const dow    = now.getUTCDay() === 0 ? 7 : now.getUTCDay(); // 1=lun…7=dim
   const mondayThis = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (dow - 1)));
-  const mondayPrev = new Date(mondayThis.getTime() - 7 * 86400000);
-  const sundayPrev = new Date(mondayThis.getTime() - 86400000);
+  // Kaito indexe avec 2-3 jours de délai — W-2 garantit des données complètes
+  const mondayPrev = new Date(mondayThis.getTime() - 14 * 86400000);
+  const sundayPrev = new Date(mondayThis.getTime() - 8 * 86400000);
   const fmt = d => d.toISOString().split("T")[0];
   // Numéro ISO via jeudi de la semaine
   const thursday = new Date(mondayPrev.getTime() + 3 * 86400000);
