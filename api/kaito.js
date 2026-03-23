@@ -66,9 +66,15 @@ async function fetchWeeklyMindshare(token, start, end, apiKey) {
       console.error(`Kaito ${token}: HTTP ${res.status}`);
       return 0;
     }
-    const data = await res.json();
-    const vals = Object.values(data?.mindshare || {});
-    return vals.reduce((s, v) => s + (parseFloat(v) || 0), 0);
+    const rawText = await res.text();
+    if (token === "RLC") console.log(`Kaito RLC response:`, rawText.slice(0, 500));
+    let data;
+    try { data = JSON.parse(rawText); } catch(e) { console.error(`Kaito ${token} parse error`); return 0; }
+    // Essayer plusieurs structures de réponse possibles
+    const mindshareObj = data?.mindshare || data?.data?.mindshare || data?.result?.mindshare || data;
+    const vals = Object.values(mindshareObj || {});
+    const numVals = vals.filter(v => typeof v === "number" || (typeof v === "string" && !isNaN(parseFloat(v))));
+    return numVals.reduce((s, v) => s + parseFloat(v), 0);
   } catch (e) {
     console.error(`Kaito ${token} error:`, e.message);
     return 0;
