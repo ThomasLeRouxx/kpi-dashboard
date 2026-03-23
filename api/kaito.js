@@ -23,7 +23,7 @@ const SHEET_ID    = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
 const SHEET_TAB   = "Weekly_Snapshot";
 
 // Référentiel Privacy Infra — KPI 9
-const PRIVACY_INFRA_TOKENS = ["ZAMA","AZTEC","ARCIUM","MIDEN","ALEO","RAIL","RLC","ROSE","PHA","INCO"];
+const PRIVACY_INFRA_TOKENS = ["ZAMA","AZTEC","ARCIUM","MIDEN","ALEO","RAIL","RLC","ROSE","PHA"];
 // Compétiteurs TEE — KPI 10
 const TEE_TOKENS = ["RLC","ROSE","PHA","SCRT"];
 // Noms des KPIs dans Sheets (colonne "Nom du KPI")
@@ -60,16 +60,15 @@ async function fetchWeeklyMindshare(token, start, end, apiKey) {
       signal: controller.signal,
     });
     clearTimeout(timeout);
+    // 403 = token non accessible avec cette clé → on skip (ne pas bloquer le calcul)
+    if (res.status === 403) return 0;
     if (!res.ok) {
       console.error(`Kaito ${token}: HTTP ${res.status}`);
       return 0;
     }
     const data = await res.json();
-    // Log la structure réelle pour diagnostic
-    if (token === "RLC") console.log(`Kaito RLC raw:`, JSON.stringify(data).slice(0, 300));
-    const vals = Object.values(data?.mindshare || data?.data?.mindshare || data || {});
-    const sum = vals.filter(v => typeof v === "number").reduce((s, v) => s + v, 0);
-    return sum;
+    const vals = Object.values(data?.mindshare || {});
+    return vals.reduce((s, v) => s + (parseFloat(v) || 0), 0);
   } catch (e) {
     console.error(`Kaito ${token} error:`, e.message);
     return 0;
