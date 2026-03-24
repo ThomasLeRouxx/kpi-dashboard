@@ -254,27 +254,5 @@ module.exports = async function handler(req, res) {
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
 
-  // ── DEBUG : retourne la réponse brute de l'API Kaito pour RLC ──────────────
-  if (type === "debug") {
-    try {
-      const { start, end, label } = getPrevWeekRange();
-      const url = `${KAITO_BASE}/mindshare?token=RLC&start_date=${start}&end_date=${end}`;
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), 10000);
-      const r = await fetch(url, {
-        headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
-        signal: controller.signal,
-      });
-      const rawText = await r.text();
-      return res.status(200).json({
-        url, week: label, start, end,
-        httpStatus: r.status,
-        rawResponse: rawText.slice(0, 1000),
-      });
-    } catch(e) {
-      return res.status(500).json({ error: e.message });
-    }
-  }
-
   return res.status(400).json({ error: `Type inconnu : ${type}. Valeurs : mindshare, tee_rank, all, status` });
 }
