@@ -1,0 +1,29 @@
+name: Kaito Weekly Mindshare → Google Sheets
+
+on:
+  # Tous les lundis à 9h UTC (données W-2 garanties disponibles)
+  schedule:
+    - cron: '0 9 * * 1'
+  # Déclenchement manuel depuis l'onglet Actions de GitHub
+  workflow_dispatch:
+
+jobs:
+  fetch-and-write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Kaito weekly script
+        env:
+          KAITO_API_KEY:                ${{ secrets.KAITO_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_PRIVATE_KEY:           ${{ secrets.GOOGLE_PRIVATE_KEY }}
+        run: node scripts/kaito_weekly.js
