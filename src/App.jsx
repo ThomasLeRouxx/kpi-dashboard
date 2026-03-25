@@ -46,6 +46,13 @@ function col(r, ...keys) {
   return "";
 }
 
+// ─── GOOGLE SHEETS CONSTANTS ─────────────────────────────────────────────────
+const SHEET_ID    = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
+const GID_MASTER  = "377128355";
+const GID_HISTORY = "1449053835";
+const csvUrl = (gid) =>
+  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`;
+
 // ─── COLOURS / CONSTANTS ──────────────────────────────────────────────────────
 const deptColors = {
   Tech:"#3B82F6", Support:"#10B981", Sales:"#8B5CF6",
@@ -57,8 +64,6 @@ const TOKENS = [
   { id:"pha",        symbol:"PHA",  color:"#10B981" },
   { id:"rose",       symbol:"ROSE", color:"#F43F5E" },
 ];
-const SHEET_ID = "1Mp8SVY1Ww-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
-
 // ─── TINY CHART HELPERS ───────────────────────────────────────────────────────
 function RadialProgress({ pct, color, size = 52 }) {
   const r = (size - 6) / 2;
@@ -990,7 +995,7 @@ export default function Dashboard() {
 
   const ytdStart = new Date(new Date().getUTCFullYear(), 0, 1).getTime();
 
-  // ── Current week label ─────────────────────────────────────────────────────
+  // ── Current week label ──────────────────────────────────────────────────────
   const getWeekLabel = () => {
     const now = new Date();
     const thu = new Date(now);
@@ -1005,35 +1010,41 @@ export default function Dashboard() {
     setLoading(true); setError(null);
     try {
       const kd = kaitoOverride ?? kaitoData;
-      const sheetBase = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`;
-
-      const [resKpi, resHist] = await Promise.all([
-        fetch(`${sheetBase}&sheet=KPIs`),
-        fetch(`${sheetBase}&sheet=Historique`).catch(() => null),
+      const [resMaster, resHist] = await Promise.all([
+        fetch(csvUrl(GID_MASTER)),
+        fetch(csvUrl(GID_HISTORY)).catch(() => null),
       ]);
 
-      if (!resKpi.ok) throw new Error(`Google Sheets inaccessible (${resKpi.status})`);
+      if (!resMaster.ok) throw new Error(`Google Sheets inaccessible (${resMaster.status})`);
 
-      const kpiText  = await resKpi.text();
-      const baseKpis = parseCsv(kpiText).filter(r => col(r,"ID","id","ID (auto)")).map(r => ({
-        id:      col(r,"ID","id","ID (auto)"),
-        name:    col(r,"Nom du KPI","Name","name"),
-        dept:    col(r,"Département","Dept","dept"),
-        type:    col(r,"Type","type"),
-        target:  parseFloat(col(r,"Cible","Target","target")) || 0,
-        weight:  parseFloat(col(r,"Poids","Weight","weight")) || 0,
-        progress_pct: 0, status:"Not Started", current:0,
-      }));
+      // Colonnes Sheet : ID, KPI, Département, Type, Target, Baseline, Valeur actuelle, Progression, Statut, Poids
+      const masterText = await resMaster.text();
+      const masterRows = parseCsv(masterText);
+      const baseKpis = masterRows
+        .filter(r => col(r, "ID") && !isNaN(parseFloat(col(r, "ID"))))
+        .map(r => ({
+          id:           col(r, "ID"),
+          name:         col(r, "KPI"),
+          dept:         col(r, "Département"),
+          type:         col(r, "Type"),
+          target:       parseFloat(col(r, "Target")) || 0,
+          baseline:     parseFloat(col(r, "Baseline")) || 0,
+          current:      parseFloat(col(r, "Valeur actuelle")) || 0,
+          progress_pct: parseFloat(col(r, "Progression")) || 0,
+          status:       col(r, "Statut") || "Not Started",
+          weight:       parseFloat(col(r, "Poids")) || 0,
+        }));
 
+      // Colonnes Historique : Semaine, Nom du KPI, ID (auto), Valeur, Unité
       let histData = [];
       if (resHist && resHist.ok) {
         const histText = await resHist.text();
         histData = parseCsv(histText)
-          .filter(r => { const w = col(r,"Semaine","Week","week"); return w && w.includes("W"); })
+          .filter(r => { const w = col(r, "Semaine"); return w && /^\d{4}-W\d{2}$/.test(w.trim()); })
           .map(r => ({
-            week:   col(r,"Semaine","Week","week"),
-            kpi_id: col(r,"ID (auto)","KPI_ID","kpi_id","ID"),
-            value:  col(r,"Valeur","Value","value") || 0,
+            week:   col(r, "Semaine").trim(),
+            kpi_id: col(r, "ID (auto)").trim(),
+            value:  col(r, "Valeur") || 0,
           }));
         setHistory(histData);
       }
