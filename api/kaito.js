@@ -8,24 +8,26 @@
  *   GOOGLE_PRIVATE_KEY            → clé privée complète (avec \n)
  *
  * Endpoints :
- *   GET /api/kaito?type=mindshare  → KPI 9 : part RLC dans Privacy Infra
+ *   GET /api/kaito?type=mindshare  → KPI 9 : part RLC dans Privacy Infra (11 tokens)
  *   GET /api/kaito?type=tee_rank   → KPI 10 : rang RLC parmi ROSE/PHA/SCRT
  *   GET /api/kaito?type=all        → fetche les deux + écrit dans Sheets
  *   GET /api/kaito?type=status     → vérifie la configuration
+ *   GET /api/kaito?type=marketing  → smart followers, impressions, mentions, rang TEE (onglet Marketing)
  *
- * Timeout étendu à 60s pour supporter les 10 appels Kaito séquentiels
+ * Timeout étendu à 60s pour supporter les appels Kaito séquentiels
  */
 const maxDuration = 60;
 exports.maxDuration = maxDuration;
 
-const KAITO_BASE  = "https://api.kaito.ai/api/v1";
-const SHEET_ID    = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
-const SHEET_TAB   = "Weekly_Snapshot";
+const KAITO_BASE = "https://api.kaito.ai/api/v1";
+const SHEET_ID   = "1Mp8SVY1Ww-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
 
-// Référentiel Privacy Infra — KPI 9
-const PRIVACY_INFRA_TOKENS = ["ZAMA","AZTEC","ARCIUM","MIDEN","ALEO","RAIL","RLC","ROSE","PHA"];
-// Compétiteurs TEE — KPI 10
+// Référentiel Privacy Infra — KPI 9 (11 tokens : ajout SCRT + INCO)
+const PRIVACY_TOKENS = ["ZAMA","AZTEC","ARCIUM","MIDEN","ALEO","RAIL","RLC","ROSE","PHA","SCRT","INCO"];
+
+// Compétiteurs TEE — KPI 10 (SCRT déjà présent)
 const TEE_TOKENS = ["RLC","ROSE","PHA","SCRT"];
+
 // Noms des KPIs dans Sheets (colonne "Nom du KPI")
 const KPI_NAMES = {
   "9":  "Maintain 2.61% privacy infra mindshare",
@@ -34,93 +36,136 @@ const KPI_NAMES = {
 
 // ─── HELPERS DATE ─────────────────────────────────────────────────────────────
 function getPrevWeekRange() {
-  const now    = new Date();
-  const dow    = now.getUTCDay() === 0 ? 7 : now.getUTCDay(); // 1=lun…7=dim
-  const mondayThis = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (dow - 1)));
+  const now  = new Date();
+  const day  = now.getUTCDay() || 7; // lundi=1 … dimanche=7
   // Kaito indexe avec 2-3 jours de délai — W-2 garantit des données complètes
-  const mondayPrev = new Date(mondayThis.getTime() - 14 * 86400000);
-  const sundayPrev = new Date(mondayThis.getTime() - 8 * 86400000);
-  const fmt = d => d.toISOString().split("T")[0];
+  const mondayPrev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day - 6));
+  const sundayPrev = new Date(mondayPrev);
+  sundayPrev.setUTCDate(mondayPrev.getUTCDate() + 6);
+  const fmt = d => d.toISOString().slice(0, 10);
   // Numéro ISO via jeudi de la semaine
-  const thursday = new Date(mondayPrev.getTime() + 3 * 86400000);
-  const jan1     = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 1));
-  const isoWeek  = Math.ceil(((thursday - jan1) / 86400000 + 1) / 7);
-  const label    = `${thursday.getUTCFullYear()}-W${String(isoWeek).padStart(2,"0")}`;
+  const thu = new Date(mondayPrev);
+  thu.setUTCDate(mondayPrev.getUTCDate() + 3);
+  const yearStart = new Date(Date.UTC(thu.getUTCFullYear(), 0, 1));
+  const wn = Math.ceil(((thu - yearStart) / 86400000 + 1) / 7);
+  const label = `${thu.getUTCFullYear()}-W${String(wn).padStart(2, "0")}`;
   return { start: fmt(mondayPrev), end: fmt(sundayPrev), label };
 }
 
 // ─── KAITO FETCH — avec timeout individuel ────────────────────────────────────
 async function fetchWeeklyMindshare(token, start, end, apiKey) {
   try {
+    const url = `${KAITO_BASE}/mindshare?token=${encodeURIComponent(token)}&start_date=${start}&end_date=${end}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
-    const url = `${KAITO_BASE}/mindshare?token=${token}&start_date=${start}&end_date=${end}`;
     const res = await fetch(url, {
       headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
       signal: controller.signal,
     });
     clearTimeout(timeout);
     // 403 = token non accessible avec cette clé → on skip (ne pas bloquer le calcul)
-    if (res.status === 403) return 0;
     if (!res.ok) {
       console.error(`Kaito ${token}: HTTP ${res.status}`);
       return 0;
     }
-    const rawText = await res.text();
-    if (token === "RLC") console.log(`Kaito RLC response:`, rawText.slice(0, 500));
     let data;
-    try { data = JSON.parse(rawText); } catch(e) { console.error(`Kaito ${token} parse error`); return 0; }
+    try { data = await res.json(); } catch { return 0; }
     // Essayer plusieurs structures de réponse possibles
-    const mindshareObj = data?.mindshare || data?.data?.mindshare || data?.result?.mindshare || data;
-    const vals = Object.values(mindshareObj || {});
-    const numVals = vals.filter(v => typeof v === "number" || (typeof v === "string" && !isNaN(parseFloat(v))));
-    return numVals.reduce((s, v) => s + parseFloat(v), 0);
+    if (typeof data.mindshare === "number") return data.mindshare;
+    if (data.data && typeof data.data.mindshare === "number") return data.data.mindshare;
+    if (Array.isArray(data.data) && data.data.length > 0) return data.data[0].mindshare ?? 0;
+    return 0;
   } catch (e) {
     console.error(`Kaito ${token} error:`, e.message);
     return 0;
   }
 }
 
-// Fetch en 3 batches parallèles de ~3 tokens — compromis vitesse / fiabilité
+// Fetch en batches parallèles de 3 tokens — compromis vitesse / fiabilité
 async function fetchInBatches(tokens, start, end, apiKey) {
-  const size = 3;
   const results = [];
-  for (let i = 0; i < tokens.length; i += size) {
-    const batch = tokens.slice(i, i + size);
+  for (let i = 0; i < tokens.length; i += 3) {
+    const batch = tokens.slice(i, i + 3);
     const batchResults = await Promise.all(
       batch.map(t => fetchWeeklyMindshare(t, start, end, apiKey).then(v => ({ token: t, value: v })))
     );
     results.push(...batchResults);
     // Petit délai entre batches pour éviter rate limiting
-    if (i + size < tokens.length) await new Promise(r => setTimeout(r, 300));
+    if (i + 3 < tokens.length) await new Promise(r => setTimeout(r, 300));
   }
   return results;
+}
+
+// ─── KAITO SMART FOLLOWERS ────────────────────────────────────────────────────
+async function fetchSmartFollowers(handle, apiKey) {
+  try {
+    const url = `${KAITO_BASE}/smart_followers?handle=${encodeURIComponent(handle)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(url, {
+      headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) { console.error(`Kaito smart_followers ${handle}: HTTP ${res.status}`); return null; }
+    const data = await res.json();
+    // Retourne le nombre de smart followers et l'évolution hebdo si disponible
+    return {
+      count:   data.smart_followers ?? data.count ?? data.total ?? null,
+      weekly_change: data.weekly_change ?? data.change ?? null,
+      rank:    data.rank ?? null,
+    };
+  } catch (e) {
+    console.error(`Kaito smart_followers error:`, e.message);
+    return null;
+  }
+}
+
+// ─── KAITO IMPRESSIONS / MENTIONS ─────────────────────────────────────────────
+async function fetchMentionsStats(token, start, end, apiKey) {
+  try {
+    const url = `${KAITO_BASE}/mentions?token=${encodeURIComponent(token)}&start_date=${start}&end_date=${end}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(url, {
+      headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) { console.error(`Kaito mentions ${token}: HTTP ${res.status}`); return null; }
+    const data = await res.json();
+    return {
+      mentions:    data.mentions ?? data.count ?? null,
+      impressions: data.impressions ?? null,
+      daily:       Array.isArray(data.data) ? data.data : [],
+    };
+  } catch (e) {
+    console.error(`Kaito mentions error:`, e.message);
+    return null;
+  }
 }
 
 // ─── GOOGLE SHEETS AUTH (JWT manuel, pas de lib externe) ──────────────────────
 async function getGoogleAccessToken(email, privateKeyRaw) {
   const privateKey = privateKeyRaw.replace(/\\n/g, "\n");
-  const now   = Math.floor(Date.now() / 1000);
-  const claim = { iss: email, scope: "https://www.googleapis.com/auth/spreadsheets", aud: "https://oauth2.googleapis.com/token", exp: now + 3600, iat: now };
-
+  const now = Math.floor(Date.now() / 1000);
+  const header  = { alg: "RS256", typ: "JWT" };
+  const payload = { iss: email, scope: "https://www.googleapis.com/auth/spreadsheets", aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 };
   // Encode JWT header + payload
-  const b64 = obj => btoa(JSON.stringify(obj)).replace(/=/g,"").replace(/\+/g,"-").replace(/\//g,"_");
-  const header  = b64({ alg: "RS256", typ: "JWT" });
-  const payload = b64(claim);
-  const unsigned = `${header}.${payload}`;
-
-  // Signe avec la clé privée RSA via SubtleCrypto
-  const pemBody   = privateKey.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\n/g, "");
+  const enc = v => btoa(JSON.stringify(v)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  const signingInput = `${enc(header)}.${enc(payload)}`;
+  // Importe la clé privée PEM
+  const pemBody = privateKey.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\n/g, "");
   const keyBuffer = Uint8Array.from(atob(pemBody), c => c.charCodeAt(0));
+  // Signe avec la clé privée RSA via SubtleCrypto
   const cryptoKey = await crypto.subtle.importKey(
     "pkcs8", keyBuffer.buffer,
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
     false, ["sign"]
   );
-  const sigBuffer  = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", cryptoKey, new TextEncoder().encode(unsigned));
-  const signature  = btoa(String.fromCharCode(...new Uint8Array(sigBuffer))).replace(/=/g,"").replace(/\+/g,"-").replace(/\//g,"_");
-  const jwt        = `${unsigned}.${signature}`;
-
+  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", cryptoKey, new TextEncoder().encode(signingInput));
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  const jwt = `${signingInput}.${sigB64}`;
   // Échange JWT contre access token
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -134,19 +179,17 @@ async function getGoogleAccessToken(email, privateKeyRaw) {
 
 // ─── VÉRIFIE SI LA LIGNE EXISTE DÉJÀ DANS SHEETS ────────────────────────────
 async function weekAlreadyInSheets(accessToken, weekLabel, kpiId) {
-  const range  = encodeURIComponent(`${SHEET_TAB}!A:C`);
-  const url    = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`;
-  const res    = await fetch(url, { headers: { "Authorization": `Bearer ${accessToken}` } });
-  const data   = await res.json();
-  const rows   = data.values || [];
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Historique!A:E`;
+  const res  = await fetch(url, { headers: { "Authorization": `Bearer ${accessToken}` } });
+  const data = await res.json();
+  const rows = data.values || [];
   // Cherche une ligne avec la semaine ET le kpi_id correspondant
-  return rows.some(row => row[0] === weekLabel && row[2] === String(kpiId));
+  return rows.some(r => r[0] === weekLabel && String(r[2]) === String(kpiId));
 }
 
 // ─── ÉCRIT UNE LIGNE DANS SHEETS ─────────────────────────────────────────────
 async function appendToSheets(accessToken, rows) {
-  const range = encodeURIComponent(`${SHEET_TAB}!A:E`);
-  const url   = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Historique!A:E:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
   const res   = await fetch(url, {
     method: "POST",
     headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -161,14 +204,14 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const apiKey   = process.env.KAITO_API_KEY;
-  const saEmail  = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const saKey    = process.env.GOOGLE_PRIVATE_KEY;
-  const { type } = req.query;
+  const type   = req.query.type || "status";
+  const apiKey = process.env.KAITO_API_KEY;
+  const saEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const saKey   = process.env.GOOGLE_PRIVATE_KEY;
+  const { start, end, label } = getPrevWeekRange();
 
   // ── Status ──────────────────────────────────────────────────────────────────
   if (type === "status") {
-    const { start, end, label } = getPrevWeekRange();
     return res.status(200).json({
       enabled:       !!apiKey,
       sheetsEnabled: !!(saEmail && saKey),
@@ -180,17 +223,15 @@ module.exports = async function handler(req, res) {
 
   if (!apiKey) return res.status(503).json({ error: "KAITO_API_KEY non configurée", enabled: false });
 
-  const { start, end, label } = getPrevWeekRange();
-
-  // ── KPI 9 : Privacy Infra Mindshare ─────────────────────────────────────────
+  // ── KPI 9 : Privacy Infra Mindshare (11 tokens : SCRT + INCO ajoutés) ──────
   const computeMindshare = async () => {
-    // Fetch par batch de 3 pour éviter timeout (10 tokens total)
-    const scores = await fetchInBatches(PRIVACY_INFRA_TOKENS, start, end, apiKey, 3);
-    const total    = scores.reduce((s, t) => s + t.value, 0);
-    const rlcRaw   = scores.find(t => t.token === "RLC")?.value || 0;
-    const rlcShare = total > 0 ? (rlcRaw / total) * 100 : 0;
+    // Fetch par batch de 3 pour éviter timeout (11 tokens total)
+    const scores = await fetchInBatches(PRIVACY_TOKENS, start, end, apiKey);
+    const total_raw = scores.reduce((s, x) => s + x.value, 0);
+    const rlc_raw   = scores.find(x => x.token === "RLC")?.value ?? 0;
+    const rlcShare  = total_raw > 0 ? (rlc_raw / total_raw) * 100 : 0;
     return { value: parseFloat(rlcShare.toFixed(4)), unit: "%", label: "Part RLC dans Privacy Infra", week: label,
-      detail: { rlc_raw: rlcRaw, total_raw: total, breakdown: scores.sort((a,b) => b.value - a.value) } };
+      detail: { rlc_raw, total_raw, breakdown: scores.map(x => ({ token: x.token, value: x.value })) } };
   };
 
   // ── KPI 10 : TEE Ranking ─────────────────────────────────────────────────────
@@ -199,10 +240,10 @@ module.exports = async function handler(req, res) {
     const scores  = await Promise.all(
       TEE_TOKENS.map(t => fetchWeeklyMindshare(t, start, end, apiKey).then(v => ({ token: t, value: v })))
     );
-    const ranked  = scores.sort((a,b) => b.value - a.value);
-    const rlcRank = ranked.findIndex(t => t.token === "RLC") + 1;
+    const sorted  = [...scores].sort((a, b) => b.value - a.value);
+    const rlcRank = sorted.findIndex(x => x.token === "RLC") + 1;
     return { value: rlcRank, unit: "rank", label: "TEE Rank RLC", week: label,
-      detail: { ranking: ranked.map((t,i) => ({ rank: i+1, token: t.token, mindshare: t.value })) } };
+      detail: { ranking: sorted.map((x, i) => ({ rank: i + 1, token: x.token, mindshare: x.value })) } };
   };
 
   if (type === "mindshare") {
@@ -221,38 +262,81 @@ module.exports = async function handler(req, res) {
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
 
+  // ── MARKETING : smart followers + impressions + mentions + TEE rank ──────────
+  if (type === "marketing") {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+
+      // Lancer les fetches en parallèle (avec fallback si certains endpoints n'existent pas)
+      const [smartFollowers, mentionsRLC, mindshareData, teeRankData] = await Promise.allSettled([
+        fetchSmartFollowers("iEx_ec", apiKey),
+        fetchMentionsStats("RLC", start, end, apiKey),
+        computeMindshare(),
+        computeTeeRank(),
+      ]);
+
+      const sf  = smartFollowers.status  === "fulfilled" ? smartFollowers.value  : null;
+      const men = mentionsRLC.status     === "fulfilled" ? mentionsRLC.value     : null;
+      const ms  = mindshareData.status   === "fulfilled" ? mindshareData.value   : null;
+      const tee = teeRankData.status     === "fulfilled" ? teeRankData.value     : null;
+
+      return res.status(200).json({
+        week:   label,
+        dateRange: { start, end },
+        smartFollowers: {
+          count:        sf?.count        ?? null,
+          weekly_change: sf?.weekly_change ?? null,
+          rank:         sf?.rank         ?? null,
+          handle:       "iEx_ec",
+        },
+        mentions: {
+          total:       men?.mentions    ?? null,
+          impressions: men?.impressions ?? null,
+          daily:       men?.daily       ?? [],
+        },
+        mindshare: ms ? {
+          value:     ms.value,
+          unit:      ms.unit,
+          breakdown: ms.detail?.breakdown ?? [],
+          rlc_raw:   ms.detail?.rlc_raw   ?? 0,
+          total_raw: ms.detail?.total_raw  ?? 0,
+        } : null,
+        teeRank: tee ? {
+          rank:    tee.value,
+          ranking: tee.detail?.ranking ?? [],
+        } : null,
+        fetchedAt: new Date().toISOString(),
+      });
+    } catch (err) { return res.status(500).json({ error: err.message }); }
+  }
+
   // ── ALL : fetche les deux + écrit dans Sheets si pas déjà présent ────────────
   if (type === "all") {
     try {
       const [mindshare, teeRank] = await Promise.all([computeMindshare(), computeTeeRank()]);
-      let sheetsResult = { written: false, reason: "Google credentials manquantes" };
-
+      let sheetsResult = { skipped: true, reason: "Google Sheets non configuré" };
       if (saEmail && saKey) {
         const accessToken = await getGoogleAccessToken(saEmail, saKey);
-
+        const rowsToWrite = [];
         // Vérifie si les lignes existent déjà pour éviter les doublons
         const [kpi9exists, kpi10exists] = await Promise.all([
           weekAlreadyInSheets(accessToken, label, 9),
           weekAlreadyInSheets(accessToken, label, 10),
         ]);
-
-        const rowsToWrite = [];
         if (!kpi9exists)  rowsToWrite.push([label, KPI_NAMES["9"],  "9",  mindshare.value, "%"]);
-        if (!kpi10exists) rowsToWrite.push([label, KPI_NAMES["10"], "10", teeRank.value,   "Rang TEE (1 = premier)"]);
-
+        if (!kpi10exists) rowsToWrite.push([label, KPI_NAMES["10"], "10", teeRank.value,   "rank"]);
         if (rowsToWrite.length > 0) {
-          await appendToSheets(accessToken, rowsToWrite);
-          sheetsResult = { written: true, rows: rowsToWrite.length, week: label };
+          sheetsResult = await appendToSheets(accessToken, rowsToWrite);
+          sheetsResult = { written: rowsToWrite.length, rows: rowsToWrite };
         } else {
-          sheetsResult = { written: false, reason: `Semaine ${label} déjà présente dans Sheets` };
+          sheetsResult = { skipped: true, reason: `Semaine ${label} déjà présente dans Sheets` };
         }
       }
-
       return res.status(200).json({
         mindshare, teeRank, sheets: sheetsResult, fetchedAt: new Date().toISOString(),
       });
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
 
-  return res.status(400).json({ error: `Type inconnu : ${type}. Valeurs : mindshare, tee_rank, all, status` });
-}
+  return res.status(400).json({ error: `Type inconnu : ${type}. Valeurs : mindshare, tee_rank, all, status, marketing` });
+};
