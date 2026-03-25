@@ -1,6 +1,12 @@
 /**
- * Vercel Serverless Function — Proxy Airtable API
+ * Vercel Serverless Function – Proxy Airtable API
  * Fichier : /api/airtable.js
+ *
+ * Changements v2 :
+ *  - Expose r.createdTime → createdAt sur chaque lead
+ *  - Calcule byWeek  (semaines calendaires lun-dim, 12 dernières)
+ *  - Calcule byMonth (12 derniers mois)
+ *  - Fix Discovery dans ConversionFlow : expose totalDiscovery
  */
 
 const maxDuration = 30;
@@ -17,6 +23,24 @@ function toStr(v) {
 
 function toBool(v) {
   return v === true || v === 'checked';
+}
+
+/** Retourne l'étiquette "YYYY-Www" (ISO lun-dim) d'une date */
+function toISOWeek(dateStr) {
+  const d = new Date(dateStr);
+  // Jeudi de la semaine ISO
+  const thu = new Date(d);
+  thu.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(thu.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((thu - yearStart) / 86400000 + 1) / 7);
+  const y = thu.getUTCFullYear();
+  return `${y}-W${String(week).padStart(2, '0')}`;
+}
+
+/** Retourne "YYYY-MM" */
+function toYearMonth(dateStr) {
+  const d = new Date(dateStr);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 module.exports = async function handler(req, res) {
@@ -59,6 +83,7 @@ module.exports = async function handler(req, res) {
       const f = r.fields || {};
       return {
         id:          r.id,
+        createdAt:   r.createdTime || null,   // ← NOUVEAU : date de création Airtable
         name:        toStr(f['Lead Name']),
         company:     toStr(f['Company / Org']),
         website:     toStr(f['Website']),
@@ -78,24 +103,27 @@ module.exports = async function handler(req, res) {
       };
     });
 
-    const total        = leads.length;
-    const totalReponse = leads.filter(l => l.reponse).length;
-    const totalMeeting = leads.filter(l => l.meetingDone).length;
-    const totalContacted = leads.filter(l => l.stage !== 'Identified' && l.stage !== 'Researched').length;
-    const discovery    = leads.filter(l => ACTIVE_STAGES.includes(l.stage)).length;
+    // ── Metrics globales ──────────────────────────────────────────────────────
+    const total          = leads.length;
+    const totalReponse   = leads.filter(l => l.reponse).length;
+    const totalMeeting   = leads.filter(l => l.meetingDone).length;
+    const totalContacted = leads.filter(l => l.stage && !['Identified', 'Researched'].includes(l.stage)).length;
+    const totalDiscovery = leads.filter(l => ACTIVE_STAGES.includes(l.stage)).length;
 
     const conversionRates = {
-      identifiedToContacted: total > 0        ? Math.round((totalContacted / total) * 100)        : 0,
-      contactedToReponse:    totalContacted > 0 ? Math.round((totalReponse / totalContacted) * 100) : 0,
-      reponseToMeeting:      totalReponse > 0   ? Math.round((totalMeeting / totalReponse) * 100)   : 0,
-      meetingToDiscovery:    totalMeeting > 0   ? Math.round((discovery / totalMeeting) * 100)      : 0,
+      identifiedToContacted: total > 0 ? Math.round(totalContacted / total * 100) : 0,
+      contactedToReponse:    totalContacted > 0 ? Math.round(totalReponse / totalContacted * 100) : 0,
+      reponseToMeeting:      totalReponse > 0 ? Math.round(totalMeeting / totalReponse * 100) : 0,
+      meetingToDiscovery:    totalMeeting > 0 ? Math.round(totalDiscovery / totalMeeting * 100) : 0,
     };
 
+    // ── Funnel ────────────────────────────────────────────────────────────────
     const funnel = FUNNEL_STAGES.map(stage => ({
       stage,
       count: leads.filter(l => l.stage === stage).length,
     }));
 
+    // ── Par owner ─────────────────────────────────────────────────────────────
     const ownerNames = [...new Set(leads.map(l => l.owner).filter(Boolean))];
     const byOwner = ownerNames.map(owner => {
       const ol   = leads.filter(l => l.owner === owner);
@@ -110,14 +138,16 @@ module.exports = async function handler(req, res) {
         stageBreak };
     });
 
-    const vertNames = [...new Set(leads.map(l => l.verticale).filter(Boolean))];
+    // ── Par verticale ─────────────────────────────────────────────────────────
+    const vertNames  = [...new Set(leads.map(l => l.verticale).filter(Boolean))];
     const byVerticale = vertNames.map(v => ({
       verticale: v,
       count:    leads.filter(l => l.verticale === v).length,
       meetings: leads.filter(l => l.verticale === v && l.meetingDone).length,
     }));
 
-    const segNames = [...new Set(leads.map(l => l.segment).filter(Boolean))];
+    // ── Par segment ───────────────────────────────────────────────────────────
+    const segNames  = [...new Set(leads.map(l => l.segment).filter(Boolean))];
     const bySegment = segNames.map(s => ({
       segment:   s,
       count:     leads.filter(l => l.segment === s).length,
@@ -125,11 +155,12 @@ module.exports = async function handler(req, res) {
       discovery: leads.filter(l => l.segment === s && ACTIVE_STAGES.includes(l.stage)).length,
     }));
 
+    // ── Top blockers ──────────────────────────────────────────────────────────
     const blockerMap = {};
     leads.forEach(l => {
       if (!l.blockers) return;
       l.blockers.split(',').forEach(b => {
-        const key = b.trim().replace(/^"|"$/g, '');
+        const key = b.trim();
         if (key) blockerMap[key] = (blockerMap[key] || 0) + 1;
       });
     });
@@ -137,19 +168,52 @@ module.exports = async function handler(req, res) {
       .sort((a, b) => b[1] - a[1]).slice(0, 6)
       .map(([name, count]) => ({ name, count }));
 
+    // ── Active prospects ──────────────────────────────────────────────────────
     const activeProspects = leads
       .filter(l => ACTIVE_STAGES.includes(l.stage))
       .map(l => ({ company: l.company, stage: l.stage, owner: l.owner,
         verticale: l.verticale, tvl: l.tvl, segment: l.segment,
         recentNews: l.recentNews, nextStep: l.nextStep }));
 
-    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate');
+    // ── NOUVEAU : Reach par semaine calendaire ────────────────────────────────
+    // On groupe les leads par semaine ISO de leur createdAt
+    const weekMap = {};
+    leads.forEach(l => {
+      if (!l.createdAt) return;
+      const wk = toISOWeek(l.createdAt);
+      if (!weekMap[wk]) weekMap[wk] = { week: wk, total: 0, reponse: 0, meeting: 0, discovery: 0 };
+      weekMap[wk].total++;
+      if (l.reponse)     weekMap[wk].reponse++;
+      if (l.meetingDone) weekMap[wk].meeting++;
+      if (ACTIVE_STAGES.includes(l.stage)) weekMap[wk].discovery++;
+    });
+    // Trier et garder les 16 dernières semaines
+    const byWeek = Object.values(weekMap)
+      .sort((a, b) => a.week.localeCompare(b.week))
+      .slice(-16);
+
+    // ── NOUVEAU : Reach par mois ───────────────────────────────────────────────
+    const monthMap = {};
+    leads.forEach(l => {
+      if (!l.createdAt) return;
+      const mo = toYearMonth(l.createdAt);
+      if (!monthMap[mo]) monthMap[mo] = { month: mo, total: 0, reponse: 0, meeting: 0, discovery: 0 };
+      monthMap[mo].total++;
+      if (l.reponse)     monthMap[mo].reponse++;
+      if (l.meetingDone) monthMap[mo].meeting++;
+      if (ACTIVE_STAGES.includes(l.stage)) monthMap[mo].discovery++;
+    });
+    const byMonth = Object.values(monthMap)
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .slice(-12);
+
     return res.status(200).json({
       enabled: true, fetchedAt: new Date().toISOString(),
-      total, totalReponse, totalMeeting, totalContacted,
+      total, totalReponse, totalMeeting, totalContacted, totalDiscovery,
       conversionRates, funnel, byOwner, byVerticale, bySegment, topBlockers, activeProspects,
+      byWeek,   // ← NOUVEAU
+      byMonth,  // ← NOUVEAU
     });
-
   } catch (err) {
     console.error('Airtable error:', err.message);
     return res.status(500).json({ error: err.message, enabled: false });
