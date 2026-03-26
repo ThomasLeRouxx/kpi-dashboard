@@ -19,8 +19,9 @@
 const maxDuration = 60;
 exports.maxDuration = maxDuration;
 
-const KAITO_BASE = "https://api.kaito.ai/api/v1";
-const SHEET_ID   = "1Mp8SVY1Ww-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
+const KAITO_BASE    = "https://api.kaito.ai/api/v1";
+const SHEET_ID      = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I"; // 'l' et pas '1'
+const MARKETING_TAB = "Marketing"; // onglet écrit par kaito_weekly_claude.js
 
 // Référentiel Privacy Infra — KPI 9 (11 tokens : ajout SCRT + INCO)
 const PRIVACY_TOKENS = ["ZAMA","AZTEC","ARCIUM","MIDEN","ALEO","RAIL","RLC","ROSE","PHA","SCRT","INCO"];
@@ -310,6 +311,72 @@ module.exports = async function handler(req, res) {
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
 
+  // ── MARKETING SHEET : lit l'onglet Marketing du Google Sheet ────────────────
+  if (type === "marketing_sheet") {
+    if (!saEmail || !saKey) {
+      return res.status(503).json({ error: "Credentials Google non configurés", enabled: false });
+    }
+    try {
+      res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate");
+      const accessToken = await getGoogleAccessToken(saEmail, saKey);
+
+      // Lecture de l'onglet Marketing (colonnes A:J)
+      const range = encodeURIComponent(`${MARKETING_TAB}!A:J`);
+      const sheetRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`,
+        { headers: { "Authorization": `Bearer ${accessToken}` } }
+      );
+      const sheetData = await sheetRes.json();
+      const rows = (sheetData.values || []).slice(1); // ignorer la ligne header
+
+      if (rows.length === 0) {
+        return res.status(200).json({ week: null, smartFollowers: null, mentions: null, engagement: null, mindshareRLC: null, teeRank: null, history: [] });
+      }
+
+      // Parser une ligne de l'onglet Marketing
+      // Colonnes : Semaine(0) | SF(1) | SF_Change(2) | Mentions(3) | Impressions(4) | Engagement(5) | SmartEngagement(6) | Mindshare(7) | TEERank(8) | Fetched_At(9)
+      const parseRow = r => ({
+        week:         r[0] ?? null,
+        smartFollowers: Number(r[1]) || 0,
+        sfChange:       Number(r[2]) || 0,
+        mentions:       Number(r[3]) || 0,
+        impressions:    Number(r[4]) || 0,
+        engagement:     Number(r[5]) || 0,
+        smartEngagement: Number(r[6]) || 0,
+        mindshare:      parseFloat(r[7]) || 0,
+        teeRank:        Number(r[8]) || null,
+        fetchedAt:      r[9] ?? null,
+      });
+
+      // 12 dernières semaines pour les sparklines
+      const history = rows.slice(-12).map(parseRow);
+      const last    = history[history.length - 1];
+      const prev    = history.length >= 2 ? history[history.length - 2] : null;
+
+      // Variation mentions en % vs semaine précédente
+      const mentionsPct = prev && prev.mentions > 0
+        ? parseFloat(((last.mentions - prev.mentions) / prev.mentions * 100).toFixed(1))
+        : null;
+
+      return res.status(200).json({
+        week: last.week,
+        smartFollowers: { count: last.smartFollowers, weekly_change: last.sfChange },
+        mentions:   { total: last.mentions, impressions: last.impressions, weekly_change_pct: mentionsPct },
+        engagement: { total: last.engagement, smart: last.smartEngagement },
+        mindshareRLC: { value: last.mindshare, unit: "%" },
+        teeRank: last.teeRank,
+        history: history.map(r => ({
+          week: r.week,
+          smartFollowers: r.smartFollowers,
+          mentions:       r.mentions,
+          engagement:     r.engagement,
+          mindshare:      r.mindshare,
+        })),
+        fetchedAt: new Date().toISOString(),
+      });
+    } catch (err) { return res.status(500).json({ error: err.message }); }
+  }
+
   // ── ALL : fetche les deux + écrit dans Sheets si pas déjà présent ────────────
   if (type === "all") {
     try {
@@ -338,5 +405,5 @@ module.exports = async function handler(req, res) {
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
 
-  return res.status(400).json({ error: `Type inconnu : ${type}. Valeurs : mindshare, tee_rank, all, status, marketing` });
+  return res.status(400).json({ error: `Type inconnu : ${type}. Valeurs : mindshare, tee_rank, all, status, marketing, marketing_sheet` });
 };
