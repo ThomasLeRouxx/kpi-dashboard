@@ -8,8 +8,9 @@
  *   GOOGLE_PRIVATE_KEY
  */
 
-const SHEET_ID  = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
-const SHEET_TAB = "Weekly_Snapshot";
+const SHEET_ID      = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
+const SHEET_TAB     = "Weekly_Snapshot";
+const MARKETING_TAB = "Marketing"; // ← onglet dédié aux données marketing
 
 const KPI_NAMES = {
   "9":  "Maintain 2.61% privacy infra mindshare",
@@ -173,6 +174,95 @@ async function updateRow(token, rowIndex, value) {
   return r.json();
 }
 
+// ── Fetch marketing via Claude + MCP Kaito ────────────────────────────────────
+async function fetchKaitoMarketingViaClaude(start, end, label) {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+
+  const prompt = `Récupère les données marketing Kaito pour la semaine ${label} (du ${start} au ${end}).
+
+Appelle ces outils dans cet ordre exact :
+1. kaito_smart_followers avec username="iEx_ec" → retourne le count actuel de Smart Followers
+2. kaito_mentions avec token="RLC", start_date="${start}", end_date="${end}" → retourne total mentions et impressions sur la période
+3. kaito_engagement avec token="RLC", start_date="${start}", end_date="${end}" → retourne total engagement et smart engagement sur la période
+
+Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans explication :
+{
+  "smartFollowers": <nombre entier>,
+  "mentions_total": <nombre entier>,
+  "mentions_impressions": <nombre entier>,
+  "engagement_total": <nombre entier>,
+  "engagement_smart": <nombre entier>
+}`;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": anthropicKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "mcp-client-2025-04-04",
+    },
+    body: JSON.stringify({
+      model: "claude-opus-4-5",
+      max_tokens: 2048,
+      mcp_servers: [{ type: "url", url: "https://mcp.kaito.ai/mcp", name: "kaito" }],
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Anthropic API error ${response.status}: ${err.slice(0, 300)}`);
+  }
+
+  const data = await response.json();
+  const textBlock = data.content.find(b => b.type === "text");
+  if (!textBlock) throw new Error("Pas de bloc texte dans la réponse Claude (marketing)");
+
+  console.log("Réponse Claude marketing brute:", textBlock.text.slice(0, 500));
+
+  const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("Pas de JSON trouvé dans la réponse marketing");
+
+  return JSON.parse(jsonMatch[0]);
+}
+
+// ── Helpers Google Sheets — onglet Marketing ──────────────────────────────────
+
+// Lit la dernière ligne de l'onglet Marketing pour calculer la variation SF
+async function getLastMarketingRow(token) {
+  const range = encodeURIComponent(`${MARKETING_TAB}!A:J`);
+  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`, {
+    headers: { "Authorization": `Bearer ${token}` },
+  });
+  const data = await r.json();
+  const rows = data.values || [];
+  if (rows.length <= 1) return null; // seulement header ou vide
+  return rows[rows.length - 1]; // dernière ligne de données
+}
+
+// Vérifie si la semaine est déjà présente dans l'onglet Marketing
+async function marketingWeekExists(token, week) {
+  const range = encodeURIComponent(`${MARKETING_TAB}!A:A`);
+  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`, {
+    headers: { "Authorization": `Bearer ${token}` },
+  });
+  const data = await r.json();
+  return (data.values || []).some(row => row[0] === week);
+}
+
+// Ajoute une ligne dans l'onglet Marketing
+async function appendMarketingRow(token, row) {
+  const range = encodeURIComponent(`${MARKETING_TAB}!A:J`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ values: [row] }),
+  });
+  return r.json();
+}
+
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 async function main() {
   if (!process.env.ANTHROPIC_API_KEY) { console.error("❌ ANTHROPIC_API_KEY manquant"); process.exit(1); }
@@ -218,6 +308,46 @@ async function main() {
     console.log(`\n✅ ${rows.length} ligne(s) écrite(s) dans Google Sheets`);
   } else {
     console.log("\n✅ Semaine déjà présente dans Sheets");
+  }
+
+  // ── Étape 3 : Données marketing (SF, mentions, engagement) ──────────────────
+  console.log("\n📣 Vérification onglet Marketing...");
+  const mktExists = await marketingWeekExists(gToken, label);
+
+  if (mktExists) {
+    console.log(`  ℹ Marketing déjà présent pour ${label} — aucune écriture`);
+  } else {
+    console.log("🤖 Appel Claude API pour données marketing...");
+    let mktData;
+    try {
+      mktData = await fetchKaitoMarketingViaClaude(start, end, label);
+      console.log(`  ✅ SF: ${mktData.smartFollowers}, Mentions: ${mktData.mentions_total}, Engagement: ${mktData.engagement_total}`);
+    } catch (e) {
+      console.error("  ⚠️ Erreur fetch marketing (non bloquant):", e.message);
+      mktData = { smartFollowers: 0, mentions_total: 0, mentions_impressions: 0, engagement_total: 0, engagement_smart: 0 };
+    }
+
+    // Calcul variation Smart Followers vs semaine précédente
+    const lastRow = await getLastMarketingRow(gToken);
+    const prevSF = lastRow ? Number(lastRow[1]) || 0 : 0;
+    const sfChange = prevSF > 0 ? mktData.smartFollowers - prevSF : 0;
+
+    // Colonnes : Semaine | SmartFollowers | SF_Change | Mentions_7d | Impressions_7d | Engagement_7d | Smart_Engagement_7d | Mindshare_RLC_Pct | TEE_Rank | Fetched_At
+    const mktRow = [
+      label,
+      mktData.smartFollowers,
+      sfChange,
+      mktData.mentions_total,
+      mktData.mentions_impressions,
+      mktData.engagement_total,
+      mktData.engagement_smart,
+      kaitoData.kpi9_value,   // Mindshare_RLC_Pct (déjà calculé par le premier appel)
+      kaitoData.kpi10_rank,   // TEE_Rank (déjà calculé par le premier appel)
+      new Date().toISOString(), // Fetched_At
+    ];
+
+    await appendMarketingRow(gToken, mktRow);
+    console.log(`  ✅ Ligne marketing écrite pour ${label} (SF: ${mktData.smartFollowers}, ΔSF: ${sfChange > 0 ? "+" : ""}${sfChange})`);
   }
 
   console.log("\n🎉 Done!\n");
