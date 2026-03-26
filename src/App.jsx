@@ -274,21 +274,60 @@ function MindshareTreemap({ breakdown, week }) {
   );
 }
 
-function FunnelBar({ data }) {
-  const max = Math.max(...data.map(d => d.count), 1);
-  const colors = { Identified:"#94A3B8", Researched:"#60A5FA", Contacted:"#3B82F6",
-    "Discovery Call":"#FCD15A", "ETHcc meeting":"#F59E0B", "Not Ready Yet":"#F87171", "Not Interested":"#EF4444" };
+// ─── Funnel visuel en entonnoir (barres centrées décroissantes) ───────────────
+function FunnelVisual({ data }) {
+  const STEP_COLORS = {
+    identified: "#94A3B8",
+    contacted:  "#3B82F6",
+    discovery:  "#8B5CF6",
+    qualified:  "#F59E0B",
+    advanced:   "#FCD15A",
+    lost:       "#EF4444",
+  };
+  // Largeur max = 100% pour l'étape avec le plus grand count
+  const maxCount = Math.max(...data.map(d => d.count), 1);
+
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-      {data.filter(d => d.count > 0 || ["Contacted","Discovery Call"].includes(d.stage)).map(d => (
-        <div key={d.stage} style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:90, fontSize:11, color:"#7A8299", textAlign:"right", flexShrink:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.stage}</div>
-          <div style={{ flex:1, height:18, background:"#f4f6fa", borderRadius:4, overflow:"hidden" }}>
-            <div style={{ width:`${(d.count/max)*100}%`, height:"100%", background:colors[d.stage]||"#94A3B8", borderRadius:4, minWidth: d.count > 0 ? 4 : 0, transition:"width 0.6s ease" }}/>
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"stretch", gap:3 }}>
+      {data.map((step, i) => {
+        const color = STEP_COLORS[step.key] || "#94A3B8";
+        // Largeur proportionnelle au count, minimum 12% pour les étapes non vides
+        const widthPct = step.count > 0 ? Math.max((step.count / maxCount) * 100, 12) : 8;
+        const prevStep = i > 0 ? data[i - 1] : null;
+        // Taux de conversion depuis l'étape précédente
+        const convRate = prevStep && prevStep.count > 0
+          ? Math.round((step.count / prevStep.count) * 100) : null;
+        const isLight = color === "#FCD15A"; // texte sombre sur fond clair
+
+        return (
+          <div key={step.key}>
+            {/* Flèche + taux de conversion entre étapes */}
+            {convRate !== null && (
+              <div style={{ textAlign:"center", fontSize:9, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace", padding:"2px 0" }}>
+                ↓ {convRate}%
+              </div>
+            )}
+            {/* Barre centrée */}
+            <div style={{ display:"flex", justifyContent:"center" }}>
+              <div style={{
+                width:`${widthPct}%`, minWidth:110,
+                height:38, background:color, borderRadius:5,
+                display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:"0 14px", transition:"width 0.6s ease",
+              }}>
+                <span style={{ fontSize:10, fontWeight:600, color: isLight ? "#1D1D24" : "#fff",
+                  fontFamily:"'IBM Plex Mono',monospace", whiteSpace:"nowrap" }}>
+                  {step.label}
+                </span>
+                <span style={{ fontSize:14, fontWeight:700, color: isLight ? "#1D1D24" : "#fff",
+                  fontFamily:"'IBM Plex Mono',monospace" }}>
+                  {step.count}
+                </span>
+              </div>
+            </div>
           </div>
-          <div style={{ width:24, fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#1D1D24", fontWeight:600, flexShrink:0 }}>{d.count}</div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -386,11 +425,41 @@ function ProspectCard({ p }) {
   );
 }
 
-// ─── NOUVEAU : Graphe Reach Sales ────────────────────────────────────────────
+// ─── Graphe Reach Sales (graphique linéaire SVG 3 séries) ────────────────────
 function ReachChart({ byWeek, byMonth }) {
   const [view, setView] = useState("week");
+  const [hovered, setHovered] = useState(null); // { label, color, xLabel, value }
   const data = view === "week" ? byWeek : byMonth;
   const xKey = view === "week" ? "week" : "month";
+
+  const series = [
+    { key:"total",   color:"#3B82F6", label:"Leads créés" },
+    { key:"reponse", color:"#8B5CF6", label:"Réponses" },
+    { key:"meeting", color:"#F59E0B", label:"Meetings" },
+  ];
+
+  if (!data || data.length === 0) return (
+    <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
+      <div style={{ color:"#7A8299", fontSize:12, padding:"20px 0", textAlign:"center" }}>
+        Aucune donnée de reach disponible
+      </div>
+    </div>
+  );
+
+  // Dimensions SVG
+  const W = 560; const H = 160;
+  const PAD = { top:16, right:20, bottom:36, left:36 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+
+  const maxVal = Math.max(...data.flatMap(d => series.map(s => d[s.key] || 0)), 1);
+  const toX = (i) => PAD.left + (data.length > 1 ? (i / (data.length - 1)) * innerW : innerW / 2);
+  const toY = (v) => PAD.top + (1 - v / maxVal) * innerH;
+
+  // Ticks Y : 0, moitié, max
+  const yTicks = [0, Math.ceil(maxVal / 2), maxVal];
+  // Labels X : éviter le surpeuplement
+  const showEvery = data.length > 10 ? Math.ceil(data.length / 8) : 1;
 
   return (
     <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
@@ -410,53 +479,81 @@ function ReachChart({ byWeek, byMonth }) {
           ))}
         </div>
       </div>
-      {(!data || data.length === 0) ? (
-        <div style={{ color:"#7A8299", fontSize:12, padding:"20px 0", textAlign:"center" }}>
-          Aucune donnée de reach disponible
-        </div>
-      ) : (
-        <>
-          <BarChart data={data} xKey={xKey} yKey="total" color="#3B82F6" height={160} />
-          <div style={{ display:"flex", gap:16, marginTop:12, flexWrap:"wrap" }}>
-            {[
-              { label:"Leads créés", color:"#3B82F6", key:"total" },
-              { label:"Réponses",    color:"#8B5CF6", key:"reponse" },
-              { label:"Meetings",    color:"#F59E0B", key:"meeting" },
-            ].map(s => (
-              <div key={s.key} style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <div style={{ width:10, height:10, borderRadius:2, background:s.color }}/>
-                <span style={{ fontSize:11, color:"#7A8299" }}>
-                  {s.label}: <strong style={{ color:"#1D1D24" }}>{data.reduce((acc, d) => acc + (d[s.key]||0), 0)}</strong>
-                </span>
-              </div>
-            ))}
+
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow:"visible" }}
+        onMouseLeave={() => setHovered(null)}>
+
+        {/* Grille Y */}
+        {yTicks.map(v => (
+          <g key={v}>
+            <line x1={PAD.left} y1={toY(v)} x2={W - PAD.right} y2={toY(v)}
+              stroke="#f0f2f5" strokeWidth={v === 0 ? 1 : 0.8}/>
+            <text x={PAD.left - 6} y={toY(v) + 4} fontSize={9} fill="#b0bec8"
+              textAnchor="end" fontFamily="'IBM Plex Mono',monospace">{v}</text>
+          </g>
+        ))}
+
+        {/* Labels X */}
+        {data.map((d, i) => {
+          if (i % showEvery !== 0 && i !== data.length - 1) return null;
+          const lbl = String(d[xKey]).replace(/^\d{4}-/, "").replace(/^W/, "W");
+          return (
+            <text key={i} x={toX(i)} y={H - 2} fontSize={8} fill="#b0bec8"
+              textAnchor="middle" fontFamily="'IBM Plex Mono',monospace">{lbl}</text>
+          );
+        })}
+
+        {/* Lignes et points par série */}
+        {series.map(s => {
+          const pts = data.map((d, i) => `${toX(i)},${toY(d[s.key] || 0)}`).join(" ");
+          return (
+            <g key={s.key}>
+              <polyline points={pts} fill="none" stroke={s.color}
+                strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"/>
+              {data.map((d, i) => (
+                <circle key={i} cx={toX(i)} cy={toY(d[s.key] || 0)} r={3.5}
+                  fill={s.color} stroke="#fff" strokeWidth={1.5}
+                  style={{ cursor:"pointer" }}
+                  onMouseEnter={() => setHovered({
+                    label: s.label, color: s.color,
+                    xLabel: String(d[xKey]).replace(/^\d{4}-/, ""),
+                    value: d[s.key] || 0,
+                    cx: toX(i), cy: toY(d[s.key] || 0),
+                  })}
+                />
+              ))}
+            </g>
+          );
+        })}
+
+        {/* Tooltip au hover */}
+        {hovered && (
+          <g>
+            <rect x={hovered.cx - 44} y={hovered.cy - 36} width={88} height={26}
+              rx={5} fill="#1D1D24" opacity={0.88}/>
+            <text x={hovered.cx} y={hovered.cy - 18} fontSize={10} fill="#fff"
+              textAnchor="middle" fontFamily="'IBM Plex Mono',monospace" fontWeight={700}>
+              {hovered.xLabel} · {hovered.value}
+            </text>
+            <text x={hovered.cx} y={hovered.cy - 8} fontSize={8} fill={hovered.color}
+              textAnchor="middle" fontFamily="'IBM Plex Mono',monospace">
+              {hovered.label}
+            </text>
+          </g>
+        )}
+      </svg>
+
+      {/* Légende */}
+      <div style={{ display:"flex", gap:20, marginTop:10, flexWrap:"wrap", justifyContent:"center" }}>
+        {series.map(s => (
+          <div key={s.key} style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <div style={{ width:18, height:3, borderRadius:2, background:s.color }}/>
+            <span style={{ fontSize:11, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>
+              {s.label} <strong style={{ color:"#1D1D24" }}>({data.reduce((acc, d) => acc + (d[s.key]||0), 0)})</strong>
+            </span>
           </div>
-          {/* Stacked mini bars réponse + meeting overlay */}
-          <div style={{ marginTop:16, display:"flex", gap:4, alignItems:"flex-end" }}>
-            {data.map((d, i) => {
-              const max = Math.max(...data.map(x => x.total), 1);
-              const H = 60;
-              const totalH = Math.max((d.total / max) * H, 2);
-              const repH = d.total > 0 ? (d.reponse / d.total) * totalH : 0;
-              const meetH = d.total > 0 ? (d.meeting / d.total) * totalH : 0;
-              return (
-                <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center" }}>
-                  <div style={{ width:"100%", height:H, display:"flex", flexDirection:"column", justifyContent:"flex-end", position:"relative" }}>
-                    <div style={{ width:"100%", background:"#3B82F6", height:totalH, borderRadius:"3px 3px 0 0", position:"relative", overflow:"hidden" }}>
-                      <div style={{ position:"absolute", bottom:0, width:"100%", height:repH, background:"#8B5CF6" }}/>
-                      <div style={{ position:"absolute", bottom:0, width:"100%", height:meetH, background:"#F59E0B" }}/>
-                    </div>
-                  </div>
-                  <div style={{ fontSize:7, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace", marginTop:2,
-                    maxWidth:28, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"center" }}>
-                    {String(d[xKey]).replace(/^\d{4}-/, "")}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+        ))}
+      </div>
     </div>
   );
 }
@@ -596,7 +693,7 @@ function SalesDashboard({ data, loading }) {
   );
 
   const { total, totalReponse, totalMeeting, totalDiscovery, conversionRates,
-          funnel, byOwner, byVerticale, bySegment, topBlockers, activeProspects,
+          funnel, byOwner, byVerticale, bySegment, byUsecase = [], topBlockers, activeProspects,
           byWeek = [], byMonth = [] } = data;
 
   return (
@@ -639,7 +736,7 @@ function SalesDashboard({ data, loading }) {
           <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:20 }}>
             FUNNEL PAR STAGE
           </div>
-          <FunnelBar data={funnel} />
+          <FunnelVisual data={funnel} />
         </div>
 
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
@@ -678,6 +775,24 @@ function SalesDashboard({ data, loading }) {
               </div>
             ))}
           </div>
+
+          {/* Usecase */}
+          {byUsecase.length > 0 && (
+            <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"20px 24px", flex:1 }}>
+              <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:14 }}>
+                PAR USECASE
+              </div>
+              {byUsecase.map(u => (
+                <div key={u.usecase} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                  <div style={{ width:110, fontSize:11, color:"#1D1D24", flexShrink:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.usecase || "—"}</div>
+                  <div style={{ flex:1, height:16, background:"#f4f6fa", borderRadius:4, overflow:"hidden" }}>
+                    <div style={{ width:`${(u.count/total)*100}%`, height:"100%", background:"#8B5CF6", borderRadius:4, minWidth: u.count > 0 ? 4 : 0 }}/>
+                  </div>
+                  <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#1D1D24", fontWeight:600, width:20, textAlign:"right", flexShrink:0 }}>{u.count}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -706,21 +821,38 @@ function SalesDashboard({ data, loading }) {
         </div>
       </div>
 
-      {/* ── Blockers ── */}
+      {/* ── Blockers (liste ordonnée avec barres de progression) ── */}
       {topBlockers.length > 0 && (
         <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
-          <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:16 }}>
-            PRINCIPAUX BLOCKERS
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+            <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em" }}>
+              PRINCIPAUX BLOCKERS
+            </div>
+            <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#EF4444", fontWeight:600 }}>
+              {topBlockers.length} identifiés
+            </div>
           </div>
-          <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-            {topBlockers.map(b => (
-              <div key={b.name} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 14px",
-                background:"rgba(239,68,68,0.05)", border:"0.8px solid rgba(239,68,68,0.2)", borderRadius:8 }}>
-                <span style={{ fontSize:13 }}>⚠</span>
-                <span style={{ fontSize:12, color:"#EF4444", fontWeight:600 }}>{b.name}</span>
-                <span style={{ fontSize:11, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>×{b.count}</span>
-              </div>
-            ))}
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {topBlockers.slice(0, 6).map((b, i) => {
+              const maxCount = topBlockers[0]?.count || 1;
+              // Opacité décroissante selon le rang (rouge vif pour le 1er)
+              const opacity = 1 - (i / Math.max(topBlockers.length, 1)) * 0.55;
+              return (
+                <div key={b.name}>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+                    <span style={{ fontSize:12, color:"#1D1D24", fontWeight:500 }}>{b.name}</span>
+                    <span style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>×{b.count}</span>
+                  </div>
+                  <div style={{ height:6, background:"#f4f6fa", borderRadius:4, overflow:"hidden" }}>
+                    <div style={{
+                      width:`${(b.count / maxCount) * 100}%`, height:"100%",
+                      background:`rgba(239,68,68,${opacity})`, borderRadius:4,
+                      transition:"width 0.6s ease",
+                    }}/>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1084,7 +1216,8 @@ export default function Dashboard() {
         if (kid === "9") {
           // ── Mindshare — Kaito live override ──
           const livems = kd.mindshare;
-          if (livems && livems.value != null) {
+          // Si value=0 (Kaito retourne 0 pour tous les tokens), on ignore et retombe sur l'historique Sheets
+          if (livems && livems.value != null && livems.value > 0) {
             const kaitoHistory = [...entries];
             const kaitoWeek = livems.week;
             if (!kaitoHistory.find(h => h.week === kaitoWeek))

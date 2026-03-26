@@ -12,8 +12,19 @@
 const maxDuration = 30;
 exports.maxDuration = maxDuration;
 
-const FUNNEL_STAGES = ['Identified', 'Researched', 'Contacted', 'Discovery Call', 'ETHcc meeting', 'Not Ready Yet', 'Not Interested'];
+// Stages utilisés pour le stageBreak par owner
+const FUNNEL_STAGES = ['Identified', 'Researched', 'Contacted', 'Discovery Call', 'Technical Call', 'Architecture', 'Advanced', 'Not Ready Yet', 'Not Interested'];
 const ACTIVE_STAGES = ['Discovery Call', 'ETHcc meeting'];
+
+// Nouveau mapping entonnoir pour l'onglet Sales
+const FUNNEL_STEPS = [
+  { key:'identified', label:'Identified',  stages:['Identified','Researched'] },
+  { key:'contacted',  label:'Contacted',   stages:['Contacted'] },
+  { key:'discovery',  label:'Discovery',   stages:['Discovery Call'] },
+  { key:'qualified',  label:'Qualified',   stages:['Technical Call','Architecture'] },
+  { key:'advanced',   label:'Advanced',    stages:['Advanced'] },
+  { key:'lost',       label:'Closed Lost', stages:['Not Ready Yet','Not Interested'] },
+];
 
 function toStr(v) {
   if (Array.isArray(v)) return v.join(', ');
@@ -117,10 +128,10 @@ module.exports = async function handler(req, res) {
       meetingToDiscovery:    totalMeeting > 0 ? Math.round(totalDiscovery / totalMeeting * 100) : 0,
     };
 
-    // ── Funnel ────────────────────────────────────────────────────────────────
-    const funnel = FUNNEL_STAGES.map(stage => ({
-      stage,
-      count: leads.filter(l => l.stage === stage).length,
+    // ── Funnel (mapping entonnoir avec regroupement de stages) ────────────────
+    const funnel = FUNNEL_STEPS.map(step => ({
+      ...step,
+      count: leads.filter(l => step.stages.includes(l.stage)).length,
     }));
 
     // ── Par owner ─────────────────────────────────────────────────────────────
@@ -154,6 +165,15 @@ module.exports = async function handler(req, res) {
       meetings:  leads.filter(l => l.segment === s && l.meetingDone).length,
       discovery: leads.filter(l => l.segment === s && ACTIVE_STAGES.includes(l.stage)).length,
     }));
+
+    // ── Par usecase ────────────────────────────────────────────────────────────
+    const usecaseNames = [...new Set(leads.map(l => l.usecase).filter(Boolean))];
+    const byUsecase = usecaseNames.map(u => ({
+      usecase:   u,
+      count:     leads.filter(l => l.usecase === u).length,
+      meetings:  leads.filter(l => l.usecase === u && l.meetingDone).length,
+      discovery: leads.filter(l => l.usecase === u && ACTIVE_STAGES.includes(l.stage)).length,
+    })).sort((a, b) => b.count - a.count);
 
     // ── Top blockers ──────────────────────────────────────────────────────────
     const blockerMap = {};
@@ -211,8 +231,9 @@ module.exports = async function handler(req, res) {
       enabled: true, fetchedAt: new Date().toISOString(),
       total, totalReponse, totalMeeting, totalContacted, totalDiscovery,
       conversionRates, funnel, byOwner, byVerticale, bySegment, topBlockers, activeProspects,
-      byWeek,   // ← NOUVEAU
-      byMonth,  // ← NOUVEAU
+      byWeek,    // ← NOUVEAU
+      byMonth,   // ← NOUVEAU
+      byUsecase, // ← NOUVEAU
     });
   } catch (err) {
     console.error('Airtable error:', err.message);
