@@ -12,8 +12,6 @@
 const maxDuration = 30;
 exports.maxDuration = maxDuration;
 
-// Stages utilisés pour le stageBreak par owner
-const FUNNEL_STAGES = ['Identified', 'Researched', 'Contacted', 'Discovery Call', 'Technical Call', 'Architecture', 'Advanced', 'Not Ready Yet', 'Not Interested'];
 const ACTIVE_STAGES = [
   'Discovery Call', 'ETHcc meeting',
   'Technical Call', 'Architecture',
@@ -146,7 +144,8 @@ module.exports = async function handler(req, res) {
       const meet = ol.filter(l => l.meetingDone).length;
       const disc = ol.filter(l => ACTIVE_STAGES.includes(l.stage)).length;
       const stageBreak = {};
-      FUNNEL_STAGES.forEach(s => { stageBreak[s] = ol.filter(l => l.stage === s).length; });
+      // stageBreak utilise les étapes du funnel (Business Call + Agreement Phase → Advanced)
+      FUNNEL_STEPS.forEach(step => { stageBreak[step.label] = ol.filter(l => step.stages.includes(l.stage)).length; });
       return { owner, total: ol.length, reponse: rep, meeting: meet, discovery: disc,
         tauxRep:  ol.length > 0 ? Math.round((rep  / ol.length) * 100) : 0,
         tauxMeet: ol.length > 0 ? Math.round((meet / ol.length) * 100) : 0,
