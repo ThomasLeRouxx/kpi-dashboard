@@ -939,10 +939,12 @@ function KpiCard({ kpi, history, onOpen }) {
           </div>
         ) : (
           <div style={{ position:"relative", width:52, height:52, flexShrink:0 }}>
-            <RadialProgress pct={pct} color={color} size={52}/>
+            {/* Anneau grisé si aucune donnée */}
+            <RadialProgress pct={pct} color={kpi.current === 0 && kpi.target === 0 ? "#d1d8e0" : color} size={52}/>
             <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
-              fontSize:11, fontWeight:700, color, fontFamily:"'IBM Plex Mono',monospace" }}>
-              {pct}%
+              fontSize:11, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace",
+              color: kpi.current === 0 && kpi.target === 0 ? "#b0bec8" : color }}>
+              {kpi.current === 0 && kpi.target === 0 ? "—" : `${pct}%`}
             </div>
           </div>
         )}
@@ -953,9 +955,16 @@ function KpiCard({ kpi, history, onOpen }) {
           {kpi.displayLabel && !isToken ? (
             <div style={{ fontSize:12, fontFamily:"'IBM Plex Mono',monospace", color:"#1D1D24", fontWeight:600 }}>{kpi.displayLabel}</div>
           ) : !isToken ? (
-            <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>
-              {kpi.current ?? 0} / {kpi.target ?? 0}
-            </div>
+            /* Affiche "Pas encore de données" si aucune valeur disponible */
+            (kpi.current === 0 && kpi.target === 0) ? (
+              <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#b0bec8", fontStyle:"italic" }}>
+                Pas encore de données
+              </div>
+            ) : (
+              <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>
+                {kpi.current ?? 0} / {kpi.target ?? 0}
+              </div>
+            )
           ) : (
             <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>{kpi.latestRaw ?? ""}</div>
           )}
@@ -1010,9 +1019,17 @@ export default function Dashboard() {
     setLoading(true); setError(null);
     try {
       const kd = kaitoOverride ?? kaitoData;
+
+      // Timeout 12s pour éviter le chargement infini si Google Sheets ne répond pas
+      const fetchWithTimeout = (url, ms = 12000) => {
+        const ctrl = new AbortController();
+        const id = setTimeout(() => ctrl.abort(), ms);
+        return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(id));
+      };
+
       const [resMaster, resHist] = await Promise.all([
-        fetch(csvUrl(GID_MASTER)),
-        fetch(csvUrl(GID_HISTORY)).catch(() => null),
+        fetchWithTimeout(csvUrl(GID_MASTER)),
+        fetchWithTimeout(csvUrl(GID_HISTORY)).catch(() => null),
       ]);
 
       if (!resMaster.ok) throw new Error(`Google Sheets inaccessible (${resMaster.status})`);
@@ -1125,25 +1142,22 @@ export default function Dashboard() {
     }
   };
 
-  // ── Kaito init ─────────────────────────────────────────────────────────────
+  // ── Chargement initial des KPIs (toujours, indépendant de Kaito) ───────────
+  useEffect(() => { fetchData(); }, []);
+
+  // ── Kaito init — enrichit KPI 9 si disponible ───────────────────────────────
   useEffect(() => {
     fetchKaitoStatus().then(s => {
       setKaitoEnabled(s.enabled);
-      if (s.enabled) {
-        setKaitoStatus("loading");
-        fetchKaitoMindshare().then(data => {
-          if (data) {
-            const newKaitoData = { mindshare: data };
-            setKaitoData(newKaitoData);
-            setKaitoStatus("ok");
-            fetchData(newKaitoData);
-          } else {
-            setKaitoStatus("error");
-          }
-        });
-      } else {
-        setKaitoStatus("disabled");
-      }
+      if (!s.enabled) { setKaitoStatus("disabled"); return; }
+      setKaitoStatus("loading");
+      fetchKaitoMindshare().then(data => {
+        if (!data) { setKaitoStatus("error"); return; }
+        const newKaitoData = { mindshare: data };
+        setKaitoData(newKaitoData);
+        setKaitoStatus("ok");
+        fetchData(newKaitoData); // Re-fetch pour injecter la valeur Kaito dans KPI 9
+      });
     });
   }, []);
 
@@ -1389,10 +1403,32 @@ export default function Dashboard() {
               Cliquez sur une carte pour voir l'évolution historique
             </div>
 
-            {/* KPI grid */}
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14, marginBottom:32 }}>
-              {filtered.map(kpi => (
-                <KpiCard key={kpi.id} kpi={kpi} history={history} onOpen={setModal}/>
+            {/* KPI grid — groupé par département */}
+            <div style={{ display:"flex", flexDirection:"column", gap:28, marginBottom:32 }}>
+              {Object.entries(
+                Object.keys(deptColors).reduce((acc, dept) => {
+                  const deptKpis = filtered.filter(k => k.dept === dept);
+                  if (deptKpis.length > 0) acc[dept] = deptKpis;
+                  return acc;
+                }, {})
+              ).map(([dept, deptKpis]) => (
+                <div key={dept}>
+                  {/* En-tête de section par domaine */}
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+                    <div style={{ width:3, height:18, background:deptColors[dept], borderRadius:2 }}/>
+                    <div style={{ fontSize:11, fontWeight:700, letterSpacing:"0.14em", color:deptColors[dept], textTransform:"uppercase", fontFamily:"'IBM Plex Mono',monospace" }}>
+                      {dept}
+                    </div>
+                    <div style={{ fontSize:10, color:"#b0bec8", fontFamily:"'IBM Plex Mono',monospace" }}>
+                      {deptKpis.length} KPI{deptKpis.length > 1 ? "s" : ""}
+                    </div>
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
+                    {deptKpis.map(kpi => (
+                      <KpiCard key={kpi.id} kpi={kpi} history={history} onOpen={setModal}/>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
 
