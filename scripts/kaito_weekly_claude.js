@@ -181,17 +181,17 @@ async function fetchKaitoMarketingViaClaude(start, end, label) {
   const prompt = `Récupère les données marketing Kaito pour la semaine ${label} (du ${start} au ${end}).
 
 Appelle ces outils dans cet ordre exact :
-1. kaito_smart_followers avec username="iEx_ec" → retourne le count actuel de Smart Followers
-2. kaito_mentions avec token="RLC", start_date="${start}", end_date="${end}" → retourne total mentions et impressions sur la période
-3. kaito_engagement avec token="RLC", start_date="${start}", end_date="${end}" → retourne total engagement et smart engagement sur la période
+1. kaito_smart_followers avec username="iEx_ec" → compte actuel de Smart Followers (number)
+2. kaito_mentions avec token="RLC", start_date="${start}", end_date="${end}" → total mentions et impressions (peut retourner {} si pas de données — mettre null dans ce cas)
+3. kaito_engagement avec token="RLC", start_date="${start}", end_date="${end}" → total engagement et smart engagement (number)
 
-Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans explication :
+Réponds UNIQUEMENT avec un objet JSON valide, aucun texte avant ou après, pas de balises markdown, pas de \`\`\`json :
 {
-  "smartFollowers": <nombre entier>,
-  "mentions_total": <nombre entier>,
-  "mentions_impressions": <nombre entier>,
-  "engagement_total": <nombre entier>,
-  "engagement_smart": <nombre entier>
+  "smartFollowers": <number>,
+  "mentions_total": <number|null>,
+  "impressions_total": <number|null>,
+  "engagement_total": <number>,
+  "smart_engagement_total": <number>
 }`;
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -219,12 +219,16 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans explication :
   const textBlock = data.content.find(b => b.type === "text");
   if (!textBlock) throw new Error("Pas de bloc texte dans la réponse Claude (marketing)");
 
-  console.log("Réponse Claude marketing brute:", textBlock.text.slice(0, 500));
+  console.log("Réponse Claude marketing brute:", textBlock.text.slice(0, 800));
 
   const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("Pas de JSON trouvé dans la réponse marketing");
+  if (!jsonMatch) throw new Error(`Pas de JSON trouvé dans la réponse marketing. Texte reçu : ${textBlock.text.slice(0, 200)}`);
 
-  return JSON.parse(jsonMatch[0]);
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch (parseErr) {
+    throw new Error(`JSON.parse échoué : ${parseErr.message}. JSON brut : ${jsonMatch[0].slice(0, 300)}`);
+  }
 }
 
 // ── Helpers Google Sheets — onglet Marketing ──────────────────────────────────
@@ -321,10 +325,10 @@ async function main() {
     let mktData;
     try {
       mktData = await fetchKaitoMarketingViaClaude(start, end, label);
-      console.log(`  ✅ SF: ${mktData.smartFollowers}, Mentions: ${mktData.mentions_total}, Engagement: ${mktData.engagement_total}`);
+      console.log(`  ✅ SF: ${mktData.smartFollowers}, Mentions: ${mktData.mentions_total ?? "null"}, Engagement: ${mktData.engagement_total}`);
     } catch (e) {
       console.error("  ⚠️ Erreur fetch marketing (non bloquant):", e.message);
-      mktData = { smartFollowers: 0, mentions_total: 0, mentions_impressions: 0, engagement_total: 0, engagement_smart: 0 };
+      mktData = { smartFollowers: 0, mentions_total: null, impressions_total: null, engagement_total: 0, smart_engagement_total: 0 };
     }
 
     // Calcul variation Smart Followers vs semaine précédente
@@ -337,10 +341,10 @@ async function main() {
       label,
       mktData.smartFollowers,
       sfChange,
-      mktData.mentions_total,
-      mktData.mentions_impressions,
-      mktData.engagement_total,
-      mktData.engagement_smart,
+      mktData.mentions_total        ?? null,
+      mktData.impressions_total     ?? null,
+      mktData.engagement_total      ?? 0,
+      mktData.smart_engagement_total ?? 0,
       kaitoData.kpi9_value,   // Mindshare_RLC_Pct (déjà calculé par le premier appel)
       kaitoData.kpi10_rank,   // TEE_Rank (déjà calculé par le premier appel)
       new Date().toISOString(), // Fetched_At
