@@ -14,7 +14,11 @@ exports.maxDuration = maxDuration;
 
 // Stages utilisés pour le stageBreak par owner
 const FUNNEL_STAGES = ['Identified', 'Researched', 'Contacted', 'Discovery Call', 'Technical Call', 'Architecture', 'Advanced', 'Not Ready Yet', 'Not Interested'];
-const ACTIVE_STAGES = ['Discovery Call', 'ETHcc meeting'];
+const ACTIVE_STAGES = [
+  'Discovery Call', 'ETHcc meeting',
+  'Technical Call', 'Architecture',
+  'Business Call', 'Agreement Phase', 'Advanced',
+];
 
 // Nouveau mapping entonnoir pour l'onglet Sales
 const FUNNEL_STEPS = [
@@ -22,7 +26,7 @@ const FUNNEL_STEPS = [
   { key:'contacted',  label:'Contacted',   stages:['Contacted'] },
   { key:'discovery',  label:'Discovery',   stages:['Discovery Call'] },
   { key:'qualified',  label:'Qualified',   stages:['Technical Call','Architecture'] },
-  { key:'advanced',   label:'Advanced',    stages:['Advanced'] },
+  { key:'advanced',   label:'Advanced',    stages:['Advanced','Business Call','Agreement Phase'] },
   { key:'lost',       label:'Closed Lost', stages:['Not Ready Yet','Not Interested'] },
 ];
 
