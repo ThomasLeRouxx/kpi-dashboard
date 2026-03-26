@@ -11,8 +11,28 @@ async function fetchKaitoMindshare() {
 }
 async function fetchKaitoMarketing() {
   // Lit l'onglet Marketing du Google Sheet (écrit par kaito_weekly_claude.js)
-  try { const r = await fetch("/api/kaito?type=marketing_sheet"); return r.ok ? r.json() : null; }
-  catch { return null; }
+  try {
+    const r = await fetch("/api/kaito?type=marketing_sheet");
+    const data = r.ok ? await r.json() : null;
+    // Si le Sheet est vide (week=null), fallback sur les endpoints live mindshare + teeRank
+    if (!data || !data.week) {
+      const [msRes, teeRes] = await Promise.allSettled([
+        fetch("/api/kaito?type=mindshare").then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch("/api/kaito?type=tee_rank").then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      const ms  = msRes.status  === "fulfilled" ? msRes.value  : null;
+      const tee = teeRes.status === "fulfilled" ? teeRes.value : null;
+      return {
+        week: null, _sheetEmpty: true,
+        smartFollowers: null, mentions: null, engagement: null,
+        mindshareRLC: ms ? { value: ms.value, unit: ms.unit,
+          breakdown: ms.detail?.breakdown ?? [], total_raw: ms.detail?.total_raw ?? 0 } : null,
+        teeRank: tee ? { rank: tee.value, ranking: tee.detail?.ranking ?? [] } : null,
+        history: [],
+      };
+    }
+    return data;
+  } catch { return null; }
 }
 async function fetchAirtableData() {
   try { const r = await fetch("/api/airtable?type=status"); return r.ok ? r.json() : null; }
@@ -415,8 +435,11 @@ function ProspectCard({ p }) {
           <div style={{ fontSize:13, fontWeight:700, color:"#1D1D24" }}>{p.company}</div>
           {p.tvl && p.tvl !== "//" && <div style={{ fontSize:10, color:"#7A8299", marginTop:2 }}>TVL: {p.tvl}</div>}
         </div>
-        <div style={{ fontSize:10, padding:"3px 8px", borderRadius:6, background:`${stageColor}22`, color:stageColor, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700 }}>
+        <div style={{ fontSize:10, padding:"3px 8px", borderRadius:6, background:`${stageColor}22`, color:stageColor, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700, textAlign:"center" }}>
           {displayStage}
+          {displayStage !== p.stage && (
+            <div style={{ fontSize:9, color:"#7A8299", fontWeight:400, marginTop:1 }}>{p.stage}</div>
+          )}
         </div>
       </div>
       <div style={{ display:"flex", gap:8, flexWrap:"wrap", fontSize:10, color:"#7A8299" }}>
@@ -573,9 +596,9 @@ function MarketingDashboard({ data, loading }) {
   if (!data) return (
     <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"48px 32px", textAlign:"center" }}>
       <div style={{ fontSize:32, marginBottom:16 }}>📡</div>
-      <div style={{ fontSize:16, fontWeight:600, color:"#1D1D24", marginBottom:8 }}>Aucune donnée Marketing</div>
+      <div style={{ fontSize:16, fontWeight:600, color:"#1D1D24", marginBottom:8 }}>Kaito Marketing non accessible</div>
       <div style={{ fontSize:13, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>
-        L'onglet "Marketing" du Google Sheet est vide — exécuter le workflow GitHub Actions kaito_weekly_claude
+        Vérifier KAITO_API_KEY et GOOGLE_SERVICE_ACCOUNT_EMAIL dans Vercel
       </div>
     </div>
   );
@@ -587,17 +610,22 @@ function MarketingDashboard({ data, loading }) {
   const eng = data.engagement ?? {};
   const hist = data.history ?? [];
 
+  const sheetEmpty = data._sheetEmpty || !data.week;
+  // Pour les cards qui viennent du Sheet (SF/mentions/engagement), afficher "À venir" si vide
+  const pendingVal = sheetEmpty ? "À venir" : "—";
+  const pendingSub = sheetEmpty ? "Données lundi prochain" : "";
+
   const kpiCards = [
-    { label:"Smart Followers", value: sf.count != null ? sf.count.toLocaleString("fr-FR") : "—",
+    { label:"Smart Followers", value: sf.count != null ? sf.count.toLocaleString("fr-FR") : pendingVal,
       icon:"🧠", color:"#3B82F6",
-      sub: sf.weekly_change != null ? `${sf.weekly_change >= 0 ? "+" : ""}${sf.weekly_change} cette semaine` : "" },
-    { label:"Mentions RLC 7j", value: men.total != null ? men.total.toLocaleString("fr-FR") : "—",
+      sub: sf.weekly_change != null ? `${sf.weekly_change >= 0 ? "+" : ""}${sf.weekly_change} cette semaine` : pendingSub },
+    { label:"Mentions RLC 7j", value: men?.total != null ? men.total.toLocaleString("fr-FR") : pendingVal,
       icon:"💬", color:"#10B981",
-      sub: men.weekly_change_pct != null ? `${men.weekly_change_pct >= 0 ? "+" : ""}${men.weekly_change_pct}% vs sem. préc.` : (data.week ?? "") },
-    { label:"Impressions 7j", value: men.impressions != null ? men.impressions.toLocaleString("fr-FR") : "—",
-      icon:"👁", color:"#8B5CF6", sub: data.week ?? "" },
-    { label:"Engagement total", value: eng.total != null ? eng.total.toLocaleString("fr-FR") : "—",
-      icon:"⚡", color:"#F59E0B", sub: eng.smart != null ? `dont ${eng.smart} smart` : "" },
+      sub: men?.weekly_change_pct != null ? `${men.weekly_change_pct >= 0 ? "+" : ""}${men.weekly_change_pct}% vs sem. préc.` : pendingSub },
+    { label:"Impressions 7j", value: men?.impressions != null ? men.impressions.toLocaleString("fr-FR") : pendingVal,
+      icon:"👁", color:"#8B5CF6", sub: pendingSub || (data.week ?? "") },
+    { label:"Engagement total", value: eng?.total != null ? eng.total.toLocaleString("fr-FR") : pendingVal,
+      icon:"⚡", color:"#F59E0B", sub: eng?.smart != null ? `dont ${eng.smart} smart` : pendingSub },
     { label:"Mindshare RLC", value: ms.value != null ? `${ms.value.toFixed(2)}%` : "—",
       icon:"📊", color:"#FCD15A", sub: "Privacy Infra" },
     { label:"Rang TEE", value: tee.rank != null ? `#${tee.rank}` : "—",
@@ -1247,12 +1275,10 @@ export default function Dashboard() {
         const kid    = String(k.id).trim();
         const latest = latestByKpi[kid];
         const entries = allByKpi[kid] || [];
-        if (!latest) return k;
-
+        // ── KPI-9 : traité AVANT le guard !latest pour que le live Kaito fonctionne même sans historique ──
         if (kid === "9") {
-          // ── Mindshare — Kaito live override ──
           const livems = kd.mindshare;
-          // Si value=0 (Kaito retourne 0 pour tous les tokens), on ignore et retombe sur l'historique Sheets
+          // 1. Live Kaito disponible et > 0
           if (livems && livems.value != null && livems.value > 0) {
             const kaitoHistory = [...entries];
             const kaitoWeek = livems.week;
@@ -1270,8 +1296,9 @@ export default function Dashboard() {
               mindshareBreakdown: livems.detail?.breakdown,
               mindshareWeek: kaitoWeek,
             };
-          } else if (latest) {
-            // Fallback : dernière valeur connue depuis l'historique Google Sheets
+          }
+          // 2. Fallback : dernière valeur dans l'historique Google Sheets
+          if (latest) {
             const current = parseFloat(latest.value) || 0;
             const target  = parseFloat(k.target) || 2.61;
             const progress_pct = current / target;
@@ -1284,7 +1311,12 @@ export default function Dashboard() {
               mindshareWeek: latest.week,
             };
           }
+          // 3. Aucune donnée — En attente
+          return { ...k, current: 0, progress_pct: 0, status: "Not Started",
+            displayLabel: "En attente", latestRaw: "Script hebdomadaire non encore exécuté" };
         }
+
+        if (!latest) return k;
 
         const current = parseFloat(latest.value) || 0;
         const target  = parseFloat(k.target)  || 1;
