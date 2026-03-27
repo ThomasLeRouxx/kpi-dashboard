@@ -318,7 +318,6 @@ async function main() {
       console.log(`  ✅ Marketing écrit (SF: ${smartFollowers ?? "null"}, ΔSF: ${sfChange > 0 ? "+" : ""}${sfChange})`);
     } catch (e) {
       console.error(`  ❌ Échec écriture Marketing: ${e.message}`);
-      throw e;
     }
   }
 
