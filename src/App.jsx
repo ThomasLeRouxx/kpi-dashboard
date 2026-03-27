@@ -10,28 +10,10 @@ async function fetchKaitoMindshare() {
   catch { return null; }
 }
 async function fetchKaitoMarketing() {
-  // Lit l'onglet Marketing du Google Sheet (écrit par kaito_weekly_claude.js)
+  // Lit Weekly_Snapshot via marketing_sheet (KPI-9/10 + SF/ENG si disponibles)
   try {
     const r = await fetch("/api/kaito?type=marketing_sheet");
-    const data = r.ok ? await r.json() : null;
-    // Si le Sheet est vide (week=null), fallback sur les endpoints live mindshare + teeRank
-    if (!data || !data.week) {
-      const [msRes, teeRes] = await Promise.allSettled([
-        fetch("/api/kaito?type=mindshare").then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch("/api/kaito?type=tee_rank").then(r => r.ok ? r.json() : null).catch(() => null),
-      ]);
-      const ms  = msRes.status  === "fulfilled" ? msRes.value  : null;
-      const tee = teeRes.status === "fulfilled" ? teeRes.value : null;
-      return {
-        week: null, _sheetEmpty: true,
-        smartFollowers: null, mentions: null, engagement: null,
-        mindshareRLC: ms ? { value: ms.value, unit: ms.unit,
-          breakdown: ms.detail?.breakdown ?? [], total_raw: ms.detail?.total_raw ?? 0 } : null,
-        teeRank: tee ? { rank: tee.value, ranking: tee.detail?.ranking ?? [] } : null,
-        history: [],
-      };
-    }
-    return data;
+    return r.ok ? r.json() : null;
   } catch { return null; }
 }
 async function fetchAirtableData() {
@@ -586,54 +568,58 @@ function ReachChart({ byWeek, byMonth }) {
 }
 
 // ─── NOUVEAU : Onglet Marketing Kaito ────────────────────────────────────────
-function MarketingDashboard({ data, loading }) {
+function MarketingDashboard({ data, loading, kaitoData }) {
   if (loading) return (
     <div style={{ textAlign:"center", padding:"80px 0", color:"#7A8299" }}>
       <div style={{ fontSize:40, marginBottom:16 }}>⟳</div>
       <div style={{ fontSize:13, fontFamily:"'IBM Plex Mono',monospace" }}>Chargement Kaito Marketing...</div>
     </div>
   );
-  if (!data) return (
-    <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"48px 32px", textAlign:"center" }}>
-      <div style={{ fontSize:32, marginBottom:16 }}>📡</div>
-      <div style={{ fontSize:16, fontWeight:600, color:"#1D1D24", marginBottom:8 }}>Kaito Marketing non accessible</div>
-      <div style={{ fontSize:13, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>
-        Vérifier KAITO_API_KEY et GOOGLE_SERVICE_ACCOUNT_EMAIL dans Vercel
-      </div>
-    </div>
-  );
 
-  const sf  = data.smartFollowers ?? {};
-  const men = data.mentions ?? {};
-  const ms  = data.mindshareRLC ?? data.mindshare ?? {}; // support nouveau format (mindshareRLC) et ancien (mindshare)
-  const tee = typeof data.teeRank === "number" ? { rank: data.teeRank, ranking: [] } : (data.teeRank ?? {});
-  const eng = data.engagement ?? {};
-  const hist = data.history ?? [];
+  // Données live Kaito (toujours disponibles si KAITO_API_KEY configurée)
+  const liveMs  = kaitoData?.mindshare;
+  const liveTee = kaitoData?.teeRank;
 
-  const sheetEmpty = data._sheetEmpty || !data.week;
-  // Pour les cards qui viennent du Sheet (SF/mentions/engagement), afficher "À venir" si vide
-  const pendingVal = sheetEmpty ? "À venir" : "—";
-  const pendingSub = sheetEmpty ? "Données lundi prochain" : "";
+  // Treemap depuis kaitoData (live) — breakdown complet
+  const breakdown  = liveMs?.detail?.breakdown ?? [];
+  const total_raw  = liveMs?.detail?.total_raw ?? 0;
+
+  // TEE ranking depuis kaitoData
+  const teeRanking = liveTee?.detail?.ranking ?? [];
+
+  // Valeur mindshare : Sheet > live
+  const msValue = data?.mindshareRLC?.value ?? liveMs?.value ?? null;
+  // TEE rank : Sheet > live
+  const teeRankNum = data?.teeRank ?? liveTee?.value ?? null;
+
+  const sf  = data?.smartFollowers ?? {};
+  const eng = data?.engagement ?? {};
+  const hist = data?.history ?? [];
+
+  const noSheetData = !data || !data.week;
 
   const kpiCards = [
-    { label:"Smart Followers", value: sf.count != null ? sf.count.toLocaleString("fr-FR") : pendingVal,
-      icon:"🧠", color:"#3B82F6",
-      sub: sf.weekly_change != null ? `${sf.weekly_change >= 0 ? "+" : ""}${sf.weekly_change} cette semaine` : pendingSub },
-    { label:"Mentions RLC 7j", value: men?.total != null ? men.total.toLocaleString("fr-FR") : pendingVal,
-      icon:"💬", color:"#10B981",
-      sub: men?.weekly_change_pct != null ? `${men.weekly_change_pct >= 0 ? "+" : ""}${men.weekly_change_pct}% vs sem. préc.` : pendingSub },
-    { label:"Impressions 7j", value: men?.impressions != null ? men.impressions.toLocaleString("fr-FR") : pendingVal,
-      icon:"👁", color:"#8B5CF6", sub: pendingSub || (data.week ?? "") },
-    { label:"Engagement total", value: eng?.total != null ? eng.total.toLocaleString("fr-FR") : pendingVal,
-      icon:"⚡", color:"#F59E0B", sub: eng?.smart != null ? `dont ${eng.smart} smart` : pendingSub },
-    { label:"Mindshare RLC", value: ms.value != null ? `${ms.value.toFixed(2)}%` : "—",
-      icon:"📊", color:"#FCD15A", sub: "Privacy Infra" },
-    { label:"Rang TEE", value: tee.rank != null ? `#${tee.rank}` : "—",
+    { label:"Mindshare RLC",   value: msValue != null ? `${Number(msValue).toFixed(2)}%` : "—",
+      icon:"📊", color:"#FCD15A", sub: "Privacy Infra · W-2" },
+    { label:"Rang TEE",        value: teeRankNum != null ? `#${teeRankNum}` : "—",
       icon:"🏆", color:"#EF4444", sub: "RLC · ROSE · PHA · SCRT" },
+    { label:"Smart Followers", value: sf.count != null ? sf.count.toLocaleString("fr-FR") : "—",
+      icon:"🧠", color:"#3B82F6",
+      sub: sf.count == null ? "Non disponible (plan Kaito)" : (sf.weekly_change != null ? `${sf.weekly_change >= 0 ? "+" : ""}${sf.weekly_change} cette semaine` : "") },
+    { label:"Engagement total", value: eng.total != null ? eng.total.toLocaleString("fr-FR") : "—",
+      icon:"⚡", color:"#F59E0B",
+      sub: eng.total == null ? "Non disponible (plan Kaito)" : (eng.smart != null ? `dont ${eng.smart} smart` : "") },
   ];
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:24 }}>
+
+      {noSheetData && (
+        <div style={{ background:"#FCD15A11", border:"0.8px solid #FCD15A55", borderRadius:10, padding:"14px 18px",
+          fontSize:12, color:"#92700A", fontFamily:"'IBM Plex Mono',monospace" }}>
+          Smart Followers et Engagement nécessitent un plan Kaito avancé. Mindshare et TEE affichés depuis Weekly_Snapshot.
+        </div>
+      )}
 
       {/* ── KPI Cards ── */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12 }}>
@@ -642,37 +628,37 @@ function MarketingDashboard({ data, loading }) {
             <div style={{ fontSize:18, marginBottom:8 }}>{m.icon}</div>
             <div style={{ fontSize:24, fontWeight:700, color:m.color, fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{m.value}</div>
             <div style={{ fontSize:10, color:"#7A8299", marginTop:6, fontFamily:"'IBM Plex Mono',monospace", textTransform:"uppercase", letterSpacing:"0.08em" }}>{m.label}</div>
-            {m.sub && <div style={{ fontSize:10, color:"#7A8299", marginTop:4 }}>{m.sub}</div>}
+            {m.sub && <div style={{ fontSize:10, color: m.sub.includes("plan Kaito") ? "#94A3B8" : "#7A8299", marginTop:4 }}>{m.sub}</div>}
           </div>
         ))}
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
 
-        {/* ── Mindshare Treemap ── */}
-        {ms.breakdown && ms.breakdown.length > 0 && (
+        {/* ── Mindshare Treemap (depuis kaitoData live) ── */}
+        {breakdown.length > 0 && (
           <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
-            <MindshareTreemap breakdown={ms.breakdown} week={data.week ?? ""} />
+            <MindshareTreemap breakdown={breakdown} week={liveMs?.week ?? data?.week ?? ""} />
             <div style={{ marginTop:16, display:"flex", gap:8, flexWrap:"wrap" }}>
-              {ms.breakdown.filter(x => x.value > 0).sort((a,b)=>b.value-a.value).map(x => (
+              {breakdown.filter(x => x.value > 0).sort((a,b)=>b.value-a.value).map(x => (
                 <div key={x.token} style={{ fontSize:10, fontFamily:"'IBM Plex Mono',monospace", padding:"2px 8px",
                   borderRadius:10, background: x.token === "RLC" ? "#FCD15A22" : "#f4f6fa",
                   color: x.token === "RLC" ? "#92700A" : "#7A8299",
                   border: x.token === "RLC" ? "0.8px solid #FCD15A" : "none", fontWeight: x.token === "RLC" ? 700 : 400 }}>
-                  {x.token}: {(ms.total_raw > 0 ? (x.value / ms.total_raw * 100) : 0).toFixed(1)}%
+                  {x.token}: {(total_raw > 0 ? (x.value / total_raw * 100) : 0).toFixed(1)}%
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* ── TEE Ranking ── */}
-        {tee.ranking && tee.ranking.length > 0 && (
+        {/* ── TEE Ranking (depuis kaitoData live) ── */}
+        {teeRanking.length > 0 && (
           <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
             <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:16 }}>
-              CLASSEMENT TEE · {data.week ?? ""}
+              CLASSEMENT TEE · {liveTee?.week ?? data?.week ?? ""}
             </div>
-            {tee.ranking.map(r => (
+            {teeRanking.map(r => (
               <div key={r.token} style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12, padding:"10px 14px",
                 background: r.token === "RLC" ? "#FCD15A11" : "#f9fafb",
                 border: r.token === "RLC" ? "0.8px solid #FCD15A55" : "0.8px solid #f0f0f0",
@@ -694,45 +680,35 @@ function MarketingDashboard({ data, loading }) {
         )}
       </div>
 
-      {/* ── Sparklines hebdomadaires (12 semaines) ── */}
-      {hist.length > 0 && (
-        <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
-          <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:16 }}>
-            ÉVOLUTION SUR {hist.length} SEMAINES
+      {/* ── Historique mindshare (Weekly_Snapshot) ── */}
+      {hist.length > 0 && (() => {
+        const vals = hist.map(h => h.mindshare || 0);
+        const maxV = Math.max(...vals, 1);
+        const W = 400; const H = 60;
+        const pts = vals.map((v, i) => `${(i / Math.max(vals.length - 1, 1)) * W},${H - (v / maxV) * H}`).join(" ");
+        return (
+          <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
+            <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:16 }}>
+              HISTORIQUE MINDSHARE RLC · {hist.length} SEMAINES
+            </div>
+            <svg width="100%" viewBox={`0 0 ${W} ${H + 16}`} style={{ overflow:"visible" }}>
+              <polyline points={pts} fill="none" stroke="#FCD15A" strokeWidth={2} strokeLinejoin="round"/>
+              {vals.map((v, i) => (
+                <circle key={i} cx={(i / Math.max(vals.length - 1, 1)) * W} cy={H - (v / maxV) * H} r={3} fill="#FCD15A"/>
+              ))}
+              {vals.map((v, i) => (
+                <text key={i} x={(i / Math.max(vals.length - 1, 1)) * W} y={H + 14}
+                  fontSize={8} fill="#7A8299" textAnchor="middle" fontFamily="'IBM Plex Mono',monospace">
+                  {hist[i].week.replace(/\d{4}-/, "")}
+                </text>
+              ))}
+            </svg>
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-            {[
-              { key:"smartFollowers", label:"Smart Followers", color:"#3B82F6" },
-              { key:"mentions",       label:"Mentions",        color:"#10B981" },
-            ].map(s => {
-              const vals = hist.map(h => h[s.key] || 0);
-              const maxV = Math.max(...vals, 1);
-              const W = 200; const H = 48;
-              const pts = vals.map((v, i) => `${(i / Math.max(vals.length - 1, 1)) * W},${H - (v / maxV) * H}`).join(" ");
-              return (
-                <div key={s.key}>
-                  <div style={{ fontSize:10, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace", marginBottom:6 }}>{s.label}</div>
-                  <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow:"visible" }}>
-                    <polyline points={pts} fill="none" stroke={s.color} strokeWidth={1.8} strokeLinejoin="round"/>
-                    {vals.map((v, i) => (
-                      <circle key={i} cx={(i / Math.max(vals.length - 1, 1)) * W} cy={H - (v / maxV) * H}
-                        r={2.5} fill={s.color}/>
-                    ))}
-                  </svg>
-                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:9, color:"#b0bec8", fontFamily:"'IBM Plex Mono',monospace", marginTop:4 }}>
-                    <span>{hist[0]?.week?.replace(/.*-/, "") ?? ""}</span>
-                    <span style={{ color:"#1D1D24", fontWeight:700 }}>{vals[vals.length - 1]?.toLocaleString("fr-FR")}</span>
-                    <span>{hist[hist.length - 1]?.week?.replace(/.*-/, "") ?? ""}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div style={{ fontSize:10, color:"#b0bec8", textAlign:"center", fontFamily:"'IBM Plex Mono',monospace" }}>
-        Données Google Sheets (kaito_weekly_claude) — semaine {data.week ?? "—"}
+        Données Weekly_Snapshot (kaito_weekly_claude) — semaine {data?.week ?? "—"}
       </div>
     </div>
   );
@@ -1077,7 +1053,63 @@ function KpiModal({ kpi, history, onClose, tokenData, tokenPeriod, setTokenPerio
             </div>
           )}
 
-          {/* Mindshare treemap */}
+          {/* KPI-9 : bar chart historique mindshare */}
+          {kpi.id === "9" && kpi.kaitoHistory?.length > 0 && (() => {
+            const TARGET = 2.61;
+            const maxVal = Math.max(...kpi.kaitoHistory.map(h => parseFloat(h.value)), TARGET * 1.2);
+            const W = 560; const H = 150; const PAD = 30;
+            const barW = Math.max(2, (W - PAD) / kpi.kaitoHistory.length - 3);
+            const targetY = H - (TARGET / maxVal) * H;
+            return (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize:11, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace",
+                  textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>
+                  HISTORIQUE MINDSHARE PRIVACY INFRA · RLC
+                </div>
+                <svg width="100%" viewBox={`0 0 ${W} ${H + PAD}`} style={{ overflow:"visible" }}>
+                  <line x1={0} y1={targetY} x2={W} y2={targetY}
+                    stroke="#FCD15A" strokeWidth={1} strokeDasharray="4 3"/>
+                  <text x={W - 2} y={targetY - 4} fontSize={9}
+                    fill="#FCD15A" textAnchor="end" fontFamily="'IBM Plex Mono',monospace">
+                    Target 2.61%
+                  </text>
+                  {kpi.kaitoHistory.map((h, i) => {
+                    const val = parseFloat(h.value);
+                    const barH = Math.max(2, (val / maxVal) * H);
+                    const x = PAD + i * ((W - PAD) / kpi.kaitoHistory.length);
+                    const isAbove = val >= TARGET;
+                    return (
+                      <g key={h.week}>
+                        <rect x={x} y={H - barH} width={barW} height={barH}
+                          fill={isAbove ? "#10B981" : "#EF4444"} rx={2} opacity={0.85}/>
+                        <text x={x + barW/2} y={H - barH - 3} fontSize={8}
+                          fill={isAbove ? "#10B981" : "#EF4444"} textAnchor="middle"
+                          fontFamily="'IBM Plex Mono',monospace">
+                          {val.toFixed(1)}%
+                        </text>
+                        <text x={x + barW/2} y={H + 12} fontSize={7.5} fill="#7A8299"
+                          textAnchor="middle" fontFamily="'IBM Plex Mono',monospace">
+                          {h.week.replace("2026-", "")}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+                <div style={{ display:"flex", gap:16, marginTop:8, fontSize:11, color:"#7A8299" }}>
+                  <span style={{ display:"flex", alignItems:"center", gap:4 }}>
+                    <span style={{ width:8, height:8, borderRadius:2, background:"#10B981", display:"inline-block"}}/>
+                    {kpi.kaitoHistory.filter(h => parseFloat(h.value) >= 2.61).length} sem. ≥ 2.61%
+                  </span>
+                  <span style={{ display:"flex", alignItems:"center", gap:4 }}>
+                    <span style={{ width:8, height:8, borderRadius:2, background:"#EF4444", display:"inline-block"}}/>
+                    {kpi.kaitoHistory.filter(h => parseFloat(h.value) < 2.61).length} sem. &lt; 2.61%
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Mindshare treemap (fallback si mindshareBreakdown disponible) */}
           {isMindshare && kpi.mindshareBreakdown && (
             <div style={{ marginBottom:20 }}>
               <MindshareTreemap breakdown={kpi.mindshareBreakdown} week={kpi.mindshareWeek ?? ""} />
@@ -1275,45 +1307,25 @@ export default function Dashboard() {
         const kid    = String(k.id).trim();
         const latest = latestByKpi[kid];
         const entries = allByKpi[kid] || [];
-        // ── KPI-9 : traité AVANT le guard !latest pour que le live Kaito fonctionne même sans historique ──
+        // ── KPI-9 : % semaines ≥ 2.61% dans Weekly_Snapshot ────────────────────
         if (kid === "9") {
-          const livems = kd.mindshare;
-          // 1. Live Kaito disponible et > 0
-          if (livems && livems.value != null && livems.value > 0) {
-            const kaitoHistory = [...entries];
-            const kaitoWeek = livems.week;
-            if (!kaitoHistory.find(h => h.week === kaitoWeek))
-              kaitoHistory.push({ week: kaitoWeek, kpi_id:"9", value: livems.value });
-            kaitoHistory.sort((a,b) => a.week.localeCompare(b.week));
-            const current = parseFloat(livems.value) || 0;
-            const target  = parseFloat(k.target) || 2.61;
-            const progress_pct = current / target;
-            return { ...k, current, progress_pct,
-              status: progress_pct >= 1 ? "Done" : current > 0 ? "In Progress" : "Not Started",
-              displayLabel: `${current.toFixed(2)}%`,
-              latestRaw: `${current.toFixed(4)}% (sur ${livems.detail?.breakdown?.length ?? 11} tokens)`,
-              kaitoHistory,
-              mindshareBreakdown: livems.detail?.breakdown,
-              mindshareWeek: kaitoWeek,
-            };
-          }
-          // 2. Fallback : dernière valeur dans l'historique Google Sheets
-          if (latest) {
-            const current = parseFloat(latest.value) || 0;
-            const target  = parseFloat(k.target) || 2.61;
-            const progress_pct = current / target;
-            const semNum = latest.week.match(/-W(\d+)/)?.[1] ?? latest.week;
-            return { ...k, current, progress_pct,
-              status: progress_pct >= 1 ? "Done" : current > 0 ? "In Progress" : "Not Started",
-              displayLabel: `${current.toFixed(2)}% (S${semNum})`,
-              latestRaw: `${current.toFixed(4)}% — dernière valeur Sheets (${latest.week})`,
-              kaitoHistory: entries,
-              mindshareWeek: latest.week,
-            };
-          }
-          // 3. Aucune donnée — En attente
-          return { ...k, current: 0, progress_pct: 0, status: "Not Started",
-            displayLabel: "En attente", latestRaw: "Script hebdomadaire non encore exécuté" };
+          const sorted = (allByKpi["9"] || []).sort((a, b) => a.week.localeCompare(b.week));
+          const TARGET = 2.61;
+          const total  = sorted.length;
+          const above  = sorted.filter(h => parseFloat(h.value) >= TARGET).length;
+          const progress_pct = total > 0 ? above / total : 0;
+          const latestEntry  = sorted[sorted.length - 1];
+          const latestVal    = latestEntry ? parseFloat(latestEntry.value) : 0;
+          if (total === 0) return { ...k, progress_pct: 0, status: "Not Started",
+            displayLabel: "En attente", latestRaw: "Pas encore de données" };
+          return { ...k,
+            current: above,
+            progress_pct,
+            status: progress_pct >= 1 ? "Done" : above > 0 ? "In Progress" : "Not Started",
+            displayLabel: `${above}/${total} sem. ≥ 2.61%`,
+            latestRaw: `Dernière : ${latestVal.toFixed(2)}% · ${latestEntry?.week ?? ""}`,
+            kaitoHistory: sorted,
+          };
         }
 
         if (!latest) return k;
@@ -1656,7 +1668,7 @@ export default function Dashboard() {
 
         {/* ── ONGLET MARKETING ── */}
         {activeTab === "marketing" && (
-          <MarketingDashboard data={marketingData} loading={marketingLoading} />
+          <MarketingDashboard data={marketingData} loading={marketingLoading} kaitoData={kaitoData} />
         )}
 
         <div style={{ textAlign:"center", marginTop:40, fontSize:10, color:"#b0bec8", letterSpacing:"0.1em", fontFamily:"'IBM Plex Mono',monospace" }}>

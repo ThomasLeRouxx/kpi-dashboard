@@ -311,7 +311,7 @@ module.exports = async function handler(req, res) {
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
 
-  // ── MARKETING SHEET : lit l'onglet Marketing du Google Sheet ────────────────
+  // ── MARKETING SHEET : lit Weekly_Snapshot pour KPI-9/10 + SF/ENG si disponibles ──
   if (type === "marketing_sheet") {
     if (!saEmail || !saKey) {
       return res.status(503).json({ error: "Credentials Google non configurés", enabled: false });
@@ -320,8 +320,9 @@ module.exports = async function handler(req, res) {
       res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate");
       const accessToken = await getGoogleAccessToken(saEmail, saKey);
 
-      // Lecture de l'onglet Marketing (colonnes A:J)
-      const range = encodeURIComponent(`${MARKETING_TAB}!A:J`);
+      // Lecture de Weekly_Snapshot (colonnes A:E) — onglet réel du Sheet
+      // Colonnes : Semaine(A) | Nom du KPI(B) | ID(C) | Valeur(D) | Unité(E)
+      const range = encodeURIComponent("Weekly_Snapshot!A:E");
       const sheetRes = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`,
         { headers: { "Authorization": `Bearer ${accessToken}` } }
@@ -330,48 +331,44 @@ module.exports = async function handler(req, res) {
       const rows = (sheetData.values || []).slice(1); // ignorer la ligne header
 
       if (rows.length === 0) {
-        return res.status(200).json({ week: null, smartFollowers: null, mentions: null, engagement: null, mindshareRLC: null, teeRank: null, history: [] });
+        return res.status(200).json({
+          week: null, smartFollowers: null, engagement: null,
+          mindshareRLC: null, teeRank: null, history: [],
+        });
       }
 
-      // Parser une ligne de l'onglet Marketing
-      // Colonnes : Semaine(0) | SF(1) | SF_Change(2) | Mentions(3) | Impressions(4) | Engagement(5) | SmartEngagement(6) | Mindshare(7) | TEERank(8) | Fetched_At(9)
-      const parseRow = r => ({
-        week:         r[0] ?? null,
-        smartFollowers: Number(r[1]) || 0,
-        sfChange:       Number(r[2]) || 0,
-        mentions:       Number(r[3]) || 0,
-        impressions:    Number(r[4]) || 0,
-        engagement:     Number(r[5]) || 0,
-        smartEngagement: Number(r[6]) || 0,
-        mindshare:      parseFloat(r[7]) || 0,
-        teeRank:        Number(r[8]) || null,
-        fetchedAt:      r[9] ?? null,
-      });
+      // Filtrer par ID (colonne C)
+      const byId = id => rows.filter(r => String(r[2] ?? "").trim() === id)
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
 
-      // 12 dernières semaines pour les sparklines
-      const history = rows.slice(-12).map(parseRow);
-      const last    = history[history.length - 1];
-      const prev    = history.length >= 2 ? history[history.length - 2] : null;
+      const kpi9rows  = byId("9");
+      const kpi10rows = byId("10");
+      const sfRows    = byId("SF");
+      const engRows   = byId("ENG");
+      const seRows    = byId("SE");
 
-      // Variation mentions en % vs semaine précédente
-      const mentionsPct = prev && prev.mentions > 0
-        ? parseFloat(((last.mentions - prev.mentions) / prev.mentions * 100).toFixed(1))
-        : null;
+      const last9  = kpi9rows[kpi9rows.length - 1];
+      const last10 = kpi10rows[kpi10rows.length - 1];
+      const lastSF = sfRows[sfRows.length - 1];
+      const lastENG = engRows[engRows.length - 1];
+      const lastSE  = seRows[seRows.length - 1];
+
+      // Semaine de référence = dernière entrée KPI-9 (ou tout dernier row)
+      const latestWeek = last9 ? last9[0] : (rows[rows.length - 1]?.[0] ?? null);
 
       return res.status(200).json({
-        week: last.week,
-        smartFollowers: { count: last.smartFollowers, weekly_change: last.sfChange },
-        mentions:   { total: last.mentions, impressions: last.impressions, weekly_change_pct: mentionsPct },
-        engagement: { total: last.engagement, smart: last.smartEngagement },
-        mindshareRLC: { value: last.mindshare, unit: "%" },
-        teeRank: last.teeRank,
-        history: history.map(r => ({
-          week: r.week,
-          smartFollowers: r.smartFollowers,
-          mentions:       r.mentions,
-          engagement:     r.engagement,
-          mindshare:      r.mindshare,
-        })),
+        week: latestWeek,
+        smartFollowers: {
+          count:         lastSF ? Number(lastSF[3]) || null : null,
+          weekly_change: null,
+        },
+        engagement: {
+          total: lastENG ? Number(lastENG[3]) || null : null,
+          smart: lastSE  ? Number(lastSE[3])  || null : null,
+        },
+        mindshareRLC: last9 ? { value: parseFloat(last9[3]) || 0, unit: "%" } : null,
+        teeRank: last10 ? Number(last10[3]) || null : null,
+        history: kpi9rows.map(r => ({ week: r[0], mindshare: parseFloat(r[3]) || 0 })),
         fetchedAt: new Date().toISOString(),
       });
     } catch (err) { return res.status(500).json({ error: err.message }); }
