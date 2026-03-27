@@ -1,24 +1,24 @@
 /**
- * Script GitHub Action — Utilise Claude API + MCP Kaito pour récupérer
- * le mindshare et écrire dans Google Sheets
+ * Script GitHub Action — Appelle l'API REST Kaito directement
+ * pour récupérer le mindshare et écrire dans Google Sheets.
  *
  * Secrets GitHub requis :
- *   ANTHROPIC_API_KEY
+ *   KAITO_API_KEY
  *   GOOGLE_SERVICE_ACCOUNT_EMAIL
  *   GOOGLE_PRIVATE_KEY
  */
 
 const SHEET_ID      = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
-const SHEET_TAB     = "Weekly_Snapshot";
-const MARKETING_TAB = "Marketing"; // ← onglet dédié aux données marketing
+const HIST_TAB      = "Historique";
+const MARKETING_TAB = "Marketing";
 
 const KPI_NAMES = {
   "9":  "Maintain 2.61% privacy infra mindshare",
   "10": "#1 TEE ≥50% Period",
 };
 
-const PRIVACY_INFRA_TOKENS = ["ZAMA","AZTEC","ARCIUM","MIDEN","ALEO","RAIL","RLC","ROSE","PHA"];
-const TEE_TOKENS = ["RLC","ROSE","PHA","SCRT"];
+const PRIVACY_TOKENS = ["ZAMA","AZTEC","ARCIUM","MIDEN","ALEO","RAIL","RLC","ROSE","PHA","SCRT","INCO"];
+const TEE_TOKENS     = ["RLC","ROSE","PHA","SCRT"];
 
 // ── Calcul semaine W-2 ────────────────────────────────────────────────────────
 function getWeekRange() {
@@ -35,80 +35,109 @@ function getWeekRange() {
   return { start: fmt(mondayPrev), end: fmt(sundayPrev), label };
 }
 
-// ── Appel Claude API avec MCP Kaito ──────────────────────────────────────────
-async function fetchKaitoDataViaClaude(start, end, label) {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+// ── Kaito REST helpers ────────────────────────────────────────────────────────
 
-  const prompt = `Tu dois récupérer les données de mindshare Kaito pour la semaine ${label} (du ${start} au ${end}).
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-Effectue les appels suivants avec l'outil kaito_mindshare pour chaque token listé :
-- Privacy Infra tokens : ${PRIVACY_INFRA_TOKENS.join(", ")}
-- TEE tokens supplémentaires : SCRT
-
-Pour chaque token, somme toutes les valeurs journalières (start_date: ${start}, end_date: ${end}).
-
-Ensuite calcule :
-1. KPI 9 — Part RLC dans Privacy Infra : (somme_RLC / somme_tous_tokens_privacy_infra) * 100
-2. KPI 10 — Rang RLC parmi les tokens TEE (RLC, ROSE, PHA, SCRT) : 1 si RLC a la plus haute somme, 2 si deuxième, etc.
-
-Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans explication :
-{
-  "kpi9_value": <nombre avec 4 décimales>,
-  "kpi10_rank": <entier 1-4>,
-  "breakdown": {
-    "RLC": <somme>,
-    "ZAMA": <somme>,
-    "AZTEC": <somme>,
-    "ARCIUM": <somme>,
-    "MIDEN": <somme>,
-    "ALEO": <somme>,
-    "RAIL": <somme>,
-    "ROSE": <somme>,
-    "PHA": <somme>,
-    "SCRT": <somme>
+/** Récupère le mindshare d'un token (retourne 0 si 403/404/timeout) */
+async function fetchMindshare(token, start, end) {
+  const apiKey = process.env.KAITO_API_KEY;
+  const url = `https://api.kaito.ai/api/v1/mindshare?token=${encodeURIComponent(token)}&start_date=${start}&end_date=${end}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const r = await fetch(url, {
+      headers: { "Authorization": `Bearer ${apiKey}` },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (r.status === 403 || r.status === 404) return 0;
+    if (!r.ok) { console.error(`  ⚠️  Kaito mindshare ${token}: HTTP ${r.status}`); return 0; }
+    const data = await r.json();
+    // Gérer les différentes structures de réponse
+    if (typeof data.mindshare === "number") return data.mindshare;
+    if (data.data && typeof data.data.mindshare === "number") return data.data.mindshare;
+    if (Array.isArray(data.data) && data.data.length > 0) return data.data[0].mindshare ?? 0;
+    return 0;
+  } catch (e) {
+    clearTimeout(timeout);
+    console.error(`  ⚠️  Kaito mindshare ${token}: ${e.message}`);
+    return 0;
   }
-}`;
+}
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": anthropicKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-beta": "mcp-client-2025-04-04",
-    },
-    body: JSON.stringify({
-      model: "claude-opus-4-5",
-      max_tokens: 4096,
-      mcp_servers: [
-        {
-          type: "url",
-          url: "https://mcp.kaito.ai/mcp",
-          name: "kaito",
-        }
-      ],
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Anthropic API error ${response.status}: ${err.slice(0, 300)}`);
+/** Fetch en batches de `size` tokens, avec `delay` ms entre les batches */
+async function fetchInBatches(tokens, fetchFn, size = 3, delay = 300) {
+  const results = {};
+  for (let i = 0; i < tokens.length; i += size) {
+    const batch = tokens.slice(i, i + size);
+    const values = await Promise.all(batch.map(t => fetchFn(t)));
+    batch.forEach((t, idx) => { results[t] = values[idx]; });
+    if (i + size < tokens.length) await sleep(delay);
   }
+  return results;
+}
 
-  const data = await response.json();
+/** Smart Followers @iEx_ec */
+async function fetchSmartFollowers() {
+  const apiKey = process.env.KAITO_API_KEY;
+  const url = `https://api.kaito.ai/api/v1/smart_followers?handle=iEx_ec`;
+  try {
+    const r = await fetch(url, { headers: { "Authorization": `Bearer ${apiKey}` } });
+    if (!r.ok) { console.error(`  ⚠️  Smart followers HTTP ${r.status}`); return null; }
+    const data = await r.json();
+    return data.smart_followers ?? data.count ?? data.total ?? null;
+  } catch (e) {
+    console.error(`  ⚠️  Smart followers: ${e.message}`);
+    return null;
+  }
+}
 
-  // Extraire le texte de la réponse
-  const textBlock = data.content.find(b => b.type === "text");
-  if (!textBlock) throw new Error("Pas de bloc texte dans la réponse Claude");
+/** Mentions RLC sur la période → somme des valeurs du dict */
+async function fetchMentions(start, end) {
+  const apiKey = process.env.KAITO_API_KEY;
+  const url = `https://api.kaito.ai/api/v1/mentions?token=RLC&start_date=${start}&end_date=${end}`;
+  try {
+    const r = await fetch(url, { headers: { "Authorization": `Bearer ${apiKey}` } });
+    if (!r.ok) { console.error(`  ⚠️  Mentions HTTP ${r.status}`); return null; }
+    const data = await r.json();
+    if (!data || typeof data !== "object" || Object.keys(data).length === 0) return null;
+    const total = Object.values(data).reduce((sum, v) => sum + (typeof v === "number" ? v : 0), 0);
+    return total || null;
+  } catch (e) {
+    console.error(`  ⚠️  Mentions: ${e.message}`);
+    return null;
+  }
+}
 
-  console.log("Réponse Claude brute:", textBlock.text.slice(0, 500));
-
-  // Parser le JSON
-  const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("Pas de JSON trouvé dans la réponse");
-
-  return JSON.parse(jsonMatch[0]);
+/** Engagement RLC sur la période → { total, smart } */
+async function fetchEngagement(start, end) {
+  const apiKey = process.env.KAITO_API_KEY;
+  const url = `https://api.kaito.ai/api/v1/engagement?token=RLC&start_date=${start}&end_date=${end}`;
+  try {
+    const r = await fetch(url, { headers: { "Authorization": `Bearer ${apiKey}` } });
+    if (!r.ok) { console.error(`  ⚠️  Engagement HTTP ${r.status}`); return { total: null, smart: null }; }
+    const data = await r.json();
+    if (!data || typeof data !== "object") return { total: null, smart: null };
+    // Soit un dict par date, soit un objet plat
+    if (data.total_engagement != null) {
+      return { total: data.total_engagement, smart: data.smart_engagement ?? null };
+    }
+    // Sommer les valeurs journalières
+    let total = 0, smart = 0;
+    for (const v of Object.values(data)) {
+      if (typeof v === "object" && v !== null) {
+        total += v.total_engagement ?? v.engagement ?? 0;
+        smart += v.smart_engagement ?? 0;
+      } else if (typeof v === "number") {
+        total += v;
+      }
+    }
+    return { total: total || null, smart: smart || null };
+  } catch (e) {
+    console.error(`  ⚠️  Engagement: ${e.message}`);
+    return { total: null, smart: null };
+  }
 }
 
 // ── Google Sheets Auth ────────────────────────────────────────────────────────
@@ -143,8 +172,9 @@ async function getGoogleToken() {
   return tokenData.access_token;
 }
 
-async function weekExists(token, week, kpiId) {
-  const range = encodeURIComponent(`${SHEET_TAB}!A:C`);
+// ── Helpers Google Sheets — onglet Historique ─────────────────────────────────
+async function histWeekExists(token, week, kpiId) {
+  const range = encodeURIComponent(`${HIST_TAB}!A:C`);
   const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`, {
     headers: { "Authorization": `Bearer ${token}` },
   });
@@ -152,8 +182,8 @@ async function weekExists(token, week, kpiId) {
   return (data.values || []).some(row => row[0] === week && row[2] === String(kpiId));
 }
 
-async function appendRows(token, rows) {
-  const range = encodeURIComponent(`${SHEET_TAB}!A:E`);
+async function appendHistRows(token, rows) {
+  const range = encodeURIComponent(`${HIST_TAB}!A:E`);
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
   const r = await fetch(url, {
     method: "POST",
@@ -163,77 +193,7 @@ async function appendRows(token, rows) {
   return r.json();
 }
 
-async function updateRow(token, rowIndex, value) {
-  const range = encodeURIComponent(`${SHEET_TAB}!D${rowIndex}`);
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}?valueInputOption=USER_ENTERED`;
-  const r = await fetch(url, {
-    method: "PUT",
-    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ values: [[value]] }),
-  });
-  return r.json();
-}
-
-// ── Fetch marketing via Claude + MCP Kaito ────────────────────────────────────
-async function fetchKaitoMarketingViaClaude(start, end, label) {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-
-  const prompt = `Récupère les données marketing Kaito pour la semaine ${label} (du ${start} au ${end}).
-
-Appelle ces outils dans cet ordre exact :
-1. kaito_smart_followers avec username="iEx_ec" → compte actuel de Smart Followers (number)
-2. kaito_mentions avec token="RLC", start_date="${start}", end_date="${end}" → total mentions et impressions (peut retourner {} si pas de données — mettre null dans ce cas)
-3. kaito_engagement avec token="RLC", start_date="${start}", end_date="${end}" → total engagement et smart engagement (number)
-
-Réponds UNIQUEMENT avec un objet JSON valide, aucun texte avant ou après, pas de balises markdown, pas de \`\`\`json :
-{
-  "smartFollowers": <number>,
-  "mentions_total": <number|null>,
-  "impressions_total": <number|null>,
-  "engagement_total": <number>,
-  "smart_engagement_total": <number>
-}`;
-
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": anthropicKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-beta": "mcp-client-2025-04-04",
-    },
-    body: JSON.stringify({
-      model: "claude-opus-4-5",
-      max_tokens: 2048,
-      mcp_servers: [{ type: "url", url: "https://mcp.kaito.ai/mcp", name: "kaito" }],
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Anthropic API error ${response.status}: ${err.slice(0, 300)}`);
-  }
-
-  const data = await response.json();
-  const textBlock = data.content.find(b => b.type === "text");
-  if (!textBlock) throw new Error("Pas de bloc texte dans la réponse Claude (marketing)");
-
-  console.log("Réponse Claude marketing brute:", textBlock.text.slice(0, 800));
-
-  const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error(`Pas de JSON trouvé dans la réponse marketing. Texte reçu : ${textBlock.text.slice(0, 200)}`);
-
-  try {
-    return JSON.parse(jsonMatch[0]);
-  } catch (parseErr) {
-    throw new Error(`JSON.parse échoué : ${parseErr.message}. JSON brut : ${jsonMatch[0].slice(0, 300)}`);
-  }
-}
-
 // ── Helpers Google Sheets — onglet Marketing ──────────────────────────────────
-
-// Lit la dernière ligne de l'onglet Marketing pour calculer la variation SF
 async function getLastMarketingRow(token) {
   const range = encodeURIComponent(`${MARKETING_TAB}!A:J`);
   const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`, {
@@ -241,11 +201,10 @@ async function getLastMarketingRow(token) {
   });
   const data = await r.json();
   const rows = data.values || [];
-  if (rows.length <= 1) return null; // seulement header ou vide
-  return rows[rows.length - 1]; // dernière ligne de données
+  if (rows.length <= 1) return null;
+  return rows[rows.length - 1];
 }
 
-// Vérifie si la semaine est déjà présente dans l'onglet Marketing
 async function marketingWeekExists(token, week) {
   const range = encodeURIComponent(`${MARKETING_TAB}!A:A`);
   const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`, {
@@ -255,7 +214,6 @@ async function marketingWeekExists(token, week) {
   return (data.values || []).some(row => row[0] === week);
 }
 
-// Ajoute une ligne dans l'onglet Marketing
 async function appendMarketingRow(token, row) {
   const range = encodeURIComponent(`${MARKETING_TAB}!A:J`);
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
@@ -269,92 +227,102 @@ async function appendMarketingRow(token, row) {
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 async function main() {
-  if (!process.env.ANTHROPIC_API_KEY) { console.error("❌ ANTHROPIC_API_KEY manquant"); process.exit(1); }
+  if (!process.env.KAITO_API_KEY) { console.error("❌ KAITO_API_KEY manquant"); process.exit(1); }
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) { console.error("❌ GOOGLE_SERVICE_ACCOUNT_EMAIL manquant"); process.exit(1); }
   if (!process.env.GOOGLE_PRIVATE_KEY) { console.error("❌ GOOGLE_PRIVATE_KEY manquant"); process.exit(1); }
 
   const { start, end, label } = getWeekRange();
   console.log(`\n📅 Semaine cible : ${label} (${start} → ${end})\n`);
 
-  // Étape 1 : Récupérer données via Claude + MCP Kaito
-  console.log("🤖 Appel Claude API avec MCP Kaito...");
-  const kaitoData = await fetchKaitoDataViaClaude(start, end, label);
-  console.log(`\n✅ KPI 9  : ${kaitoData.kpi9_value}%`);
-  console.log(`✅ KPI 10 : Rank #${kaitoData.kpi10_rank}`);
-  console.log("📊 Breakdown:", JSON.stringify(kaitoData.breakdown, null, 2));
+  // ── Étape 1 : Mindshare Privacy Infra (KPI 9) ────────────────────────────────
+  console.log(`🔄 Fetching Privacy Infra mindshare (${PRIVACY_TOKENS.length} tokens)...`);
+  const mindshareMap = await fetchInBatches(
+    PRIVACY_TOKENS,
+    t => fetchMindshare(t, start, end),
+  );
+  const rlc_raw   = mindshareMap["RLC"] ?? 0;
+  const total_raw = Object.values(mindshareMap).reduce((s, v) => s + v, 0);
+  const mindshare_pct = total_raw > 0 ? (rlc_raw / total_raw) * 100 : 0;
+  console.log(`  ✅ Mindshare RLC: ${mindshare_pct.toFixed(2)}% (sur total: ${total_raw.toFixed(4)})`);
 
-  // Étape 2 : Écrire dans Google Sheets
-  console.log("\n📝 Connexion Google Sheets...");
+  // ── Étape 2 : TEE Rank (KPI 10) ──────────────────────────────────────────────
+  console.log(`🔄 Fetching TEE rank...`);
+  const teeMindshares = {};
+  for (const t of TEE_TOKENS) {
+    teeMindshares[t] = mindshareMap[t] ?? (await fetchMindshare(t, start, end));
+  }
+  const teeSorted = [...TEE_TOKENS].sort((a, b) => (teeMindshares[b] ?? 0) - (teeMindshares[a] ?? 0));
+  const teeRank = teeSorted.indexOf("RLC") + 1;
+  console.log(`  ✅ TEE Rank RLC: #${teeRank} (${teeSorted.map(t => `${t}:${(teeMindshares[t]??0).toFixed(4)}`).join(" | ")})`);
+
+  // ── Étape 3 : Smart Followers @iEx_ec ───────────────────────────────────────
+  console.log(`🔄 Fetching Smart Followers @iEx_ec...`);
+  const smartFollowers = await fetchSmartFollowers();
+  console.log(`  ✅ Smart Followers: ${smartFollowers ?? "null"}`);
+
+  // ── Étape 4 : Engagement RLC ─────────────────────────────────────────────────
+  console.log(`🔄 Fetching Engagement RLC...`);
+  const [mentions_total, { total: engagement_total, smart: smart_engagement }] = await Promise.all([
+    fetchMentions(start, end),
+    fetchEngagement(start, end),
+  ]);
+  console.log(`  ✅ Mentions: ${mentions_total ?? "null"}, Engagement: ${engagement_total ?? "null"} total, ${smart_engagement ?? "null"} smart`);
+
+  // ── Étape 5 : Écriture Google Sheets ─────────────────────────────────────────
+  console.log(`\n📝 Écriture Google Sheets...`);
   const gToken = await getGoogleToken();
 
+  // — Onglet Historique (KPI 9 + KPI 10) —
   const [kpi9exists, kpi10exists] = await Promise.all([
-    weekExists(gToken, label, 9),
-    weekExists(gToken, label, 10),
+    histWeekExists(gToken, label, 9),
+    histWeekExists(gToken, label, 10),
   ]);
 
-  const rows = [];
-  if (!kpi9exists) {
-    rows.push([label, KPI_NAMES["9"], "9", kaitoData.kpi9_value, "%"]);
-    console.log(`  ✓ KPI 9 à écrire : ${kaitoData.kpi9_value}%`);
+  const histRows = [];
+  if (!kpi9exists)  histRows.push([label, KPI_NAMES["9"],  "9",  mindshare_pct.toFixed(4), "%"]);
+  if (!kpi10exists) histRows.push([label, KPI_NAMES["10"], "10", teeRank, "rank"]);
+
+  if (histRows.length > 0) {
+    await appendHistRows(gToken, histRows);
+    console.log(`  ✅ KPI 9 + KPI 10 écrits dans Historique`);
   } else {
-    console.log(`  ℹ KPI 9 déjà présent pour ${label} — mise à jour si nécessaire`);
+    console.log(`  ℹ️  KPI 9 + KPI 10 déjà présents pour ${label}`);
   }
 
-  if (!kpi10exists) {
-    rows.push([label, KPI_NAMES["10"], "10", kaitoData.kpi10_rank, "Rang TEE (1 = premier)"]);
-    console.log(`  ✓ KPI 10 à écrire : rank #${kaitoData.kpi10_rank}`);
-  } else {
-    console.log(`  ℹ KPI 10 déjà présent pour ${label}`);
-  }
-
-  if (rows.length > 0) {
-    await appendRows(gToken, rows);
-    console.log(`\n✅ ${rows.length} ligne(s) écrite(s) dans Google Sheets`);
-  } else {
-    console.log("\n✅ Semaine déjà présente dans Sheets");
-  }
-
-  // ── Étape 3 : Données marketing (SF, mentions, engagement) ──────────────────
-  console.log("\n📣 Vérification onglet Marketing...");
+  // — Onglet Marketing —
   const mktExists = await marketingWeekExists(gToken, label);
-
   if (mktExists) {
-    console.log(`  ℹ Marketing déjà présent pour ${label} — aucune écriture`);
+    console.log(`  ℹ️  Marketing déjà présent pour ${label} — aucune écriture`);
   } else {
-    console.log("🤖 Appel Claude API pour données marketing...");
-    let mktData;
-    try {
-      mktData = await fetchKaitoMarketingViaClaude(start, end, label);
-      console.log(`  ✅ SF: ${mktData.smartFollowers}, Mentions: ${mktData.mentions_total ?? "null"}, Engagement: ${mktData.engagement_total}`);
-    } catch (e) {
-      console.error("  ⚠️ Erreur fetch marketing (non bloquant):", e.message);
-      mktData = { smartFollowers: 0, mentions_total: null, impressions_total: null, engagement_total: 0, smart_engagement_total: 0 };
-    }
-
-    // Calcul variation Smart Followers vs semaine précédente
     const lastRow = await getLastMarketingRow(gToken);
-    const prevSF = lastRow ? Number(lastRow[1]) || 0 : 0;
-    const sfChange = prevSF > 0 ? mktData.smartFollowers - prevSF : 0;
+    const prevSF  = lastRow ? Number(lastRow[1]) || 0 : 0;
+    const sfChange = prevSF > 0 && smartFollowers != null ? smartFollowers - prevSF : 0;
 
-    // Colonnes : Semaine | SmartFollowers | SF_Change | Mentions_7d | Impressions_7d | Engagement_7d | Smart_Engagement_7d | Mindshare_RLC_Pct | TEE_Rank | Fetched_At
+    // Colonnes A:J : Semaine | SmartFollowers | SF_Change | Mentions_7d | Impressions_7d |
+    //                Engagement_7d | SmartEngagement_7d | Mindshare_RLC_Pct | TEE_Rank | Fetched_At
     const mktRow = [
       label,
-      mktData.smartFollowers,
+      smartFollowers   ?? null,
       sfChange,
-      mktData.mentions_total        ?? null,
-      mktData.impressions_total     ?? null,
-      mktData.engagement_total      ?? 0,
-      mktData.smart_engagement_total ?? 0,
-      kaitoData.kpi9_value,   // Mindshare_RLC_Pct (déjà calculé par le premier appel)
-      kaitoData.kpi10_rank,   // TEE_Rank (déjà calculé par le premier appel)
-      new Date().toISOString(), // Fetched_At
+      mentions_total   ?? null,
+      null,                         // Impressions_7d — non disponible via REST
+      engagement_total ?? null,
+      smart_engagement ?? null,
+      mindshare_pct.toFixed(4),
+      teeRank,
+      new Date().toISOString(),
     ];
 
-    await appendMarketingRow(gToken, mktRow);
-    console.log(`  ✅ Ligne marketing écrite pour ${label} (SF: ${mktData.smartFollowers}, ΔSF: ${sfChange > 0 ? "+" : ""}${sfChange})`);
+    try {
+      await appendMarketingRow(gToken, mktRow);
+      console.log(`  ✅ Marketing écrit (SF: ${smartFollowers ?? "null"}, ΔSF: ${sfChange > 0 ? "+" : ""}${sfChange})`);
+    } catch (e) {
+      console.error(`  ❌ Échec écriture Marketing: ${e.message}`);
+      throw e;
+    }
   }
 
-  console.log("\n🎉 Done!\n");
+  console.log(`\n✅ Terminé`);
 }
 
 main().catch(e => { console.error("❌ Fatal:", e.message); process.exit(1); });
