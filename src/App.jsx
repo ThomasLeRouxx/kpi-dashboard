@@ -570,7 +570,17 @@ function ReachChart({ byWeek, byMonth }) {
 // ─── MARKETING DASHBOARD (Google Sheet autonome) ─────────────────────────────
 const MKT_SHEET_URL = "/api/marketing-sheet";
 
-function parseMarketingNum(v) {
+// Columns in gid=0 (0-indexed, first column is always empty)
+const MKT_COL = {
+  week: 1, badge: 2, techAmb: 3, msArbitrum: 4, rankArbitrum: 5,
+  netSentiment: 6, msPrivacy: 7, rankPrivacy: 8, teeRanking: 9,
+  smartFollowers: 10, smartEngagement: 11, xImpressions: 12,
+  likes: 13, engagements: 14, engRate: 15, bookmarks: 16, shares: 17,
+  newFollows: 18, unfollows: 19, followers: 20, replies: 22, reposts: 23,
+  profileVisits: 24, posts: 25,
+};
+
+function mktNum(v) {
   if (v == null || v === "") return null;
   const s = String(v).trim().replace(/,/g, "");
   if (s.endsWith("%")) { const n = parseFloat(s); return isNaN(n) ? null : n / 100; }
@@ -578,54 +588,34 @@ function parseMarketingNum(v) {
   return isNaN(n) ? null : n;
 }
 
-function parseCsvLine(line) {
-  const vals = [];
-  let inQuote = false, cur = "";
-  for (const ch of line) {
-    if (ch === '"') { inQuote = !inQuote; }
-    else if (ch === "," && !inQuote) { vals.push(cur.trim()); cur = ""; }
-    else { cur += ch; }
+// Full CSV parser — handles quoted cells with embedded newlines
+function parseFullCsv(text) {
+  const rows = [];
+  let row = [], cell = "", inQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuote) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { cell += '"'; i++; }
+        else { inQuote = false; }
+      } else { cell += ch; }
+    } else {
+      if (ch === '"') { inQuote = true; }
+      else if (ch === ',') { row.push(cell.trim()); cell = ""; }
+      else if (ch === '\r') { /* skip */ }
+      else if (ch === '\n') { row.push(cell.trim()); rows.push(row); row = []; cell = ""; }
+      else { cell += ch; }
+    }
   }
-  vals.push(cur.trim());
-  return vals;
+  if (cell !== "" || row.length > 0) { row.push(cell.trim()); rows.push(row); }
+  return rows;
 }
 
 function parseMarketingCsv(text) {
-  const lines = text.split(/\r?\n/);
-  const blocks = [];
-  let cur = [];
-  for (const line of lines) {
-    const isBlank = parseCsvLine(line).every(c => c === "");
-    if (isBlank) { if (cur.length > 0) { blocks.push(cur); cur = []; } }
-    else { cur.push(line); }
-  }
-  if (cur.length > 0) blocks.push(cur);
-
-  function blockToRows(block) {
-    if (block.length < 2) return [];
-    const headers = parseCsvLine(block[0]);
-    return block.slice(1).map(line => {
-      const vals = parseCsvLine(line);
-      const obj = {};
-      headers.forEach((h, i) => { obj[h.trim()] = (vals[i] ?? "").trim(); });
-      return obj;
-    });
-  }
-
-  let weekTable = [], linkedinTable = [], liveStreamTable = [];
-  for (const block of blocks) {
-    if (block.length < 2) continue;
-    const firstHeader = parseCsvLine(block[0])[0]?.trim().toLowerCase();
-    const headerLine = block[0].toLowerCase();
-    if (firstHeader === "week" && headerLine.includes("mindshare arbitrum")) {
-      weekTable = blockToRows(block);
-    } else if (firstHeader === "semaine" && headerLine.includes("reactions") && headerLine.includes("followers")) {
-      linkedinTable = blockToRows(block);
-    } else if (firstHeader === "semaine" && headerLine.includes("live exposure") && headerLine.includes("viewers")) {
-      liveStreamTable = blockToRows(block);
-    }
-  }
-  return { weekTable, linkedinTable, liveStreamTable };
+  const allRows = parseFullCsv(text);
+  // Data rows: col[1] matches "Week N"
+  const dataRows = allRows.filter(r => /^Week\s+\d+/i.test(r[MKT_COL.week] ?? ""));
+  return dataRows;
 }
 
 function MktLineChart({ data, color = "#3B82F6", height = 80, secondaryData, secondaryColor = "#F59E0B", refLine = null }) {
@@ -663,7 +653,7 @@ function MktLineChart({ data, color = "#3B82F6", height = 80, secondaryData, sec
 function MarketingDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
-  const [parsed, setParsed]   = useState(null);
+  const [rows, setRows]       = useState([]);
 
   async function loadData() {
     setLoading(true);
@@ -671,7 +661,7 @@ function MarketingDashboard() {
     try {
       const r = await fetch(MKT_SHEET_URL);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setParsed(parseMarketingCsv(await r.text()));
+      setRows(parseMarketingCsv(await r.text()));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -701,83 +691,70 @@ function MarketingDashboard() {
     </div>
   );
 
-  const { weekTable, linkedinTable, liveStreamTable } = parsed ?? {};
+  const C = MKT_COL;
+  const get = (row, col) => mktNum(row[col]);
 
-  // Toutes les semaines avec un label "week"
-  const weekRows = (weekTable ?? []).filter(r => r.week?.trim());
+  // Semaines avec données = col[1] non vide et au moins une colonne de données non vide
+  const dataRows = rows.filter(r => r[C.week] && (r[C.badge] || r[C.xImpressions] || r[C.engagements]));
 
-  // S1 2026 = w.1 à w.26 (les semaines H2 2025 sont w.27-w.53)
-  const s1Rows = weekRows.filter(r => {
-    const m = r.week?.trim().match(/w\.(\d+)/i);
+  // S1 2026 = Week 1 à Week 26
+  const s1Rows = dataRows.filter(r => {
+    const m = r[C.week].match(/Week\s+(\d+)/i);
     return m && +m[1] >= 1 && +m[1] <= 26;
   });
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
-  const N = k => parseMarketingNum(k);
   const cardStyle = { background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"20px 24px" };
   const secTitle  = t => (
     <div style={{ fontSize:10, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:14 }}>{t}</div>
   );
-
-  // ── Section 1 — Mindshare Privacy Infra ──────────────────────────────────────
-  const MS_TARGET = 0.0261;
-  const msVals = s1Rows.map(r => N(r["Mindshare Privacy Infra"]));
-  const msValid = msVals.filter(v => v != null);
-  const msAvg  = msValid.length ? msValid.reduce((s,v) => s+v, 0) / msValid.length : 0;
-  const msPct  = msValid.length ? msValid.filter(v => v >= MS_TARGET).length / msValid.length * 100 : 0;
-
-  // ── Section 1 — TEE Ranking ───────────────────────────────────────────────────
-  const teeVals = s1Rows.map(r => { const n = parseInt(r["TEE Ranking"]); return isNaN(n) ? null : n; });
-  const teeValid = teeVals.filter(v => v != null);
-  const teePct = teeValid.length ? teeValid.filter(v => v === 1).length / teeValid.length * 100 : 0;
-
-  // ── Section 1 — Total Impressions S1 ─────────────────────────────────────────
-  const IMP_TARGET = 5000000;
-  const sumKey = k => s1Rows.reduce((s, r) => s + (N(r[k]) ?? 0), 0);
-  const totalImp   = sumKey("Total Impressions");
-  const iexecImp   = sumKey("iExec Imp.");
-  const techAmbImp = sumKey("Tech Ambs.");
-  const badgesImp  = sumKey("Badges Holders Imp.");
-  const impPct = Math.min(totalImp / IMP_TARGET * 100, 100);
-
-  // ── Section 2 — Engagement ────────────────────────────────────────────────────
-  const weekLabels  = weekRows.map(r => r.week?.trim());
-  const engVals     = weekRows.map(r => N(r["Engagement"]));
-  const smartEngVals = weekRows.map(r => N(r["Smart Engagement"]));
-
-  // ── Section 3 — Smart Followers ───────────────────────────────────────────────
-  const sfVals = weekRows.map(r => N(r["Smart Followers"]));
-
-  // ── Section 4 — Net Sentiment ─────────────────────────────────────────────────
-  const sentVals = weekRows.map(r => N(r["Net Sentiment"]));
-  const lastSent = sentVals.filter(v => v != null).at(-1) ?? 0;
-  const sentColor = lastSent >= 0.7 ? "#10B981" : lastSent >= 0.5 ? "#F59E0B" : "#EF4444";
-
-  // ── Section 5 — Impressions table (last 8 weeks) ──────────────────────────────
-  const last8 = weekRows.slice(-8);
-
-  // ── Section 6 — Live Streams ─────────────────────────────────────────────────
-  const liveRows = (liveStreamTable ?? []).filter(r => r["Semaine"]?.trim());
-  const totalExposure = liveRows.reduce((s, r) => s + (N(r["Live Exposure"]) ?? 0), 0);
-
-  // ── Section 7 — LinkedIn ─────────────────────────────────────────────────────
-  const liRows = (linkedinTable ?? []).filter(r => r["Semaine"]?.trim());
-  const lastLi = liRows.at(-1);
-  const prevLi = liRows.at(-2);
-  const liFollow = N(lastLi?.["Followers"]);
-  const liChange = liFollow != null && N(prevLi?.["Followers"]) != null ? liFollow - N(prevLi["Followers"]) : null;
-
   function fmtNum(n) {
     if (n == null) return "—";
     if (n >= 1_000_000) return `${(n/1_000_000).toFixed(2)}M`;
     if (n >= 1_000) return `${(n/1_000).toFixed(0)}k`;
     return n.toLocaleString("fr-FR");
   }
-
-  function xAxisLabels(labels) {
-    const step = Math.ceil(labels.length / 6);
-    return labels.filter((_, i) => i % step === 0);
+  function xAxisLabels(arr) {
+    const step = Math.ceil(arr.length / 6);
+    return arr.filter((_, i) => i % step === 0);
   }
+
+  // ── Section 1 — Mindshare Privacy Infra (col 7, valeurs en %, ex: 0.53 = 0.53%) ──
+  const MS_TARGET = 2.61;
+  const msVals  = s1Rows.map(r => get(r, C.msPrivacy));
+  const msValid = msVals.filter(v => v != null);
+  const msAvg   = msValid.length ? msValid.reduce((s,v) => s+v, 0) / msValid.length : 0;
+  const msPct   = msValid.length ? msValid.filter(v => v >= MS_TARGET).length / msValid.length * 100 : 0;
+
+  // ── Section 1 — TEE Ranking (col 9, entier 1-4) ──────────────────────────────
+  const teeVals  = s1Rows.map(r => { const n = parseInt(r[C.teeRanking]); return isNaN(n) ? null : n; });
+  const teeValid = teeVals.filter(v => v != null);
+  const teePct   = teeValid.length ? teeValid.filter(v => v === 1).length / teeValid.length * 100 : 0;
+
+  // ── Section 1 — Total Impressions = badge + techAmb + xImp ───────────────────
+  const IMP_TARGET = 5000000;
+  const sumCol = (col) => s1Rows.reduce((s, r) => s + (get(r, col) ?? 0), 0);
+  const badgesImp  = sumCol(C.badge);
+  const techAmbImp = sumCol(C.techAmb);
+  const iexecImp   = sumCol(C.xImpressions);
+  const totalImp   = badgesImp + techAmbImp + iexecImp;
+  const impPct     = Math.min(totalImp / IMP_TARGET * 100, 100);
+
+  // ── Section 2 — Engagement ────────────────────────────────────────────────────
+  const weekLabels   = dataRows.map(r => r[C.week].replace(/\s*:.*/, "").trim());
+  const engVals      = dataRows.map(r => get(r, C.engagements));
+  const smartEngVals = dataRows.map(r => get(r, C.smartEngagement));
+
+  // ── Section 3 — Smart Followers ──────────────────────────────────────────────
+  const sfVals = dataRows.map(r => get(r, C.smartFollowers));
+
+  // ── Section 4 — Net Sentiment (col 6, valeur "61%" → 0.61 après parsing) ─────
+  const sentVals = dataRows.map(r => get(r, C.netSentiment));
+  const lastSent = sentVals.filter(v => v != null).at(-1) ?? 0;
+  const sentColor = lastSent >= 0.7 ? "#10B981" : lastSent >= 0.5 ? "#F59E0B" : "#EF4444";
+
+  // ── Section 5 — Impressions table (8 dernières semaines) ──────────────────────
+  const last8 = dataRows.slice(-8);
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:24 }}>
@@ -799,7 +776,7 @@ function MarketingDashboard() {
         <div style={cardStyle}>
           {secTitle("Mindshare Privacy Infra · S1 2026")}
           <div style={{ fontSize:28, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", color: msAvg >= MS_TARGET ? "#10B981" : "#EF4444" }}>
-            {(msAvg * 100).toFixed(2)}%
+            {msAvg.toFixed(2)}%
           </div>
           <div style={{ fontSize:11, color:"#7A8299", margin:"4px 0 14px", fontFamily:"'IBM Plex Mono',monospace" }}>
             Target 2.61% · {msPct.toFixed(0)}% semaines atteintes
@@ -807,9 +784,9 @@ function MarketingDashboard() {
           <svg width="100%" viewBox="0 0 200 48" style={{ overflow:"visible" }}>
             {msVals.map((v, i) => {
               if (v == null) return null;
-              const bw = Math.max(200 / msVals.length - 2, 2);
+              const bw = Math.max(200 / Math.max(msVals.length, 1) - 2, 2);
               const bh = Math.min((v / (MS_TARGET * 3)) * 40, 40);
-              return <rect key={i} x={i * (200 / msVals.length)} y={40 - bh} width={bw} height={bh}
+              return <rect key={i} x={i * (200 / Math.max(msVals.length, 1))} y={40 - bh} width={bw} height={bh}
                 fill={v >= MS_TARGET ? "#10B981" : "#EF4444"} rx={1} opacity={0.85}/>;
             })}
             <line x1={0} y1={40 - (1/3)*40} x2={200} y2={40 - (1/3)*40} stroke="#FCD15A" strokeWidth={1} strokeDasharray="3 2"/>
@@ -848,7 +825,7 @@ function MarketingDashboard() {
           <div style={{ background:"#f4f6fa", borderRadius:4, height:10, overflow:"hidden", marginBottom:14 }}>
             <div style={{ width:`${impPct}%`, height:"100%", background: impPct >= 100 ? "#10B981" : "#FCD15A", borderRadius:4 }}/>
           </div>
-          {[["iExec", iexecImp, "#FCD15A"], ["Tech Ambs.", techAmbImp, "#3B82F6"], ["Badges", badgesImp, "#8B5CF6"]].map(([label, val, color]) => (
+          {[["X / iExec", iexecImp, "#FCD15A"], ["Tech Ambs.", techAmbImp, "#3B82F6"], ["Badges", badgesImp, "#8B5CF6"]].map(([label, val, color]) => (
             <div key={label} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
               <div style={{ fontSize:9, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", width:58 }}>{label}</div>
               <div style={{ flex:1, background:"#f4f6fa", borderRadius:3, height:6 }}>
@@ -916,69 +893,32 @@ function MarketingDashboard() {
           <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11, fontFamily:"'IBM Plex Mono',monospace" }}>
             <thead>
               <tr style={{ borderBottom:"1px solid #f0f0f0" }}>
-                {["Semaine","Total Imp.","iExec","Tech Ambs.","Badges","Engagement"].map(h => (
+                {["Semaine","Total Imp.","X / iExec","Tech Ambs.","Badges","Engagement"].map(h => (
                   <th key={h} style={{ padding:"6px 10px", textAlign: h === "Semaine" ? "left" : "right", color:"#7A8299", fontWeight:400, fontSize:10, whiteSpace:"nowrap" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {last8.map((r, i) => (
-                <tr key={i} style={{ borderBottom:"0.5px solid #f8f8f8" }}>
-                  <td style={{ padding:"6px 10px", color:"#1D1D24", fontWeight:700 }}>{r.week}</td>
-                  {[["Total Impressions"], ["iExec Imp."], ["Tech Ambs."], ["Badges Holders Imp."], ["Engagement"]].map(([k]) => (
-                    <td key={k} style={{ padding:"6px 10px", textAlign:"right", color:"#1D1D24" }}>{fmtNum(N(r[k]))}</td>
-                  ))}
-                </tr>
-              ))}
+              {last8.map((r, i) => {
+                const badge = get(r, C.badge) ?? 0;
+                const tech  = get(r, C.techAmb) ?? 0;
+                const ximp  = get(r, C.xImpressions) ?? 0;
+                const total = badge + tech + ximp;
+                return (
+                  <tr key={i} style={{ borderBottom:"0.5px solid #f8f8f8" }}>
+                    <td style={{ padding:"6px 10px", color:"#1D1D24", fontWeight:700, whiteSpace:"nowrap" }}>
+                      {r[C.week].replace(/\s*:.*/, "").trim()}
+                    </td>
+                    <td style={{ padding:"6px 10px", textAlign:"right", color:"#1D1D24" }}>{fmtNum(total || null)}</td>
+                    <td style={{ padding:"6px 10px", textAlign:"right", color:"#1D1D24" }}>{fmtNum(get(r, C.xImpressions))}</td>
+                    <td style={{ padding:"6px 10px", textAlign:"right", color:"#1D1D24" }}>{fmtNum(get(r, C.techAmb))}</td>
+                    <td style={{ padding:"6px 10px", textAlign:"right", color:"#1D1D24" }}>{fmtNum(get(r, C.badge))}</td>
+                    <td style={{ padding:"6px 10px", textAlign:"right", color:"#1D1D24" }}>{fmtNum(get(r, C.engagements))}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      {/* ── Section 6 : Live Streams Binance Square ── */}
-      {liveRows.length > 0 && (
-        <div style={cardStyle}>
-          {secTitle(`Live Streams Binance Square · Exposition totale : ${fmtNum(totalExposure)}`)}
-          <div style={{ overflowX:"auto" }}>
-            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11, fontFamily:"'IBM Plex Mono',monospace" }}>
-              <thead>
-                <tr style={{ borderBottom:"1px solid #f0f0f0" }}>
-                  {["Semaine","Titre","Exposition","Viewers","Follows gagnés"].map(h => (
-                    <th key={h} style={{ padding:"6px 10px", textAlign: h === "Titre" || h === "Semaine" ? "left" : "right", color:"#7A8299", fontWeight:400, fontSize:10 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {liveRows.map((r, i) => (
-                  <tr key={i} style={{ borderBottom:"0.5px solid #f8f8f8" }}>
-                    <td style={{ padding:"6px 10px", color:"#1D1D24", fontWeight:700, whiteSpace:"nowrap" }}>{r["Semaine"]}</td>
-                    <td style={{ padding:"6px 10px", color:"#1D1D24", maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                      {r["Nom/Lien"] ?? r["Nom"] ?? "—"}
-                    </td>
-                    {["Live Exposure","Viewers","New Followers"].map(k => (
-                      <td key={k} style={{ padding:"6px 10px", textAlign:"right", color:"#1D1D24" }}>{fmtNum(N(r[k]))}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ── Section 7 : LinkedIn ── */}
-      <div style={cardStyle}>
-        {secTitle("LinkedIn · Followers")}
-        <div style={{ fontSize:28, fontWeight:700, color:"#0A66C2", fontFamily:"'IBM Plex Mono',monospace" }}>
-          {liFollow != null ? liFollow.toLocaleString("fr-FR") : "—"}
-        </div>
-        {liChange != null && (
-          <div style={{ fontSize:11, color: liChange >= 0 ? "#10B981" : "#EF4444", marginTop:6, fontFamily:"'IBM Plex Mono',monospace" }}>
-            {liChange >= 0 ? "+" : ""}{liChange} vs semaine précédente
-          </div>
-        )}
-        <div style={{ fontSize:10, color:"#7A8299", marginTop:4, fontFamily:"'IBM Plex Mono',monospace" }}>
-          Semaine {lastLi?.["Semaine"] ?? "—"}
         </div>
       </div>
 
