@@ -568,7 +568,7 @@ function ReachChart({ byWeek, byMonth }) {
 }
 
 // ─── MARKETING DASHBOARD (Google Sheet autonome) ─────────────────────────────
-const MKT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1ax7iv9ZINDkhvpDlc_AdofsghKBSfIaO_L54qoHFgV8/export?format=csv&gid=0";
+const MKT_SHEET_URL = "/api/marketing-sheet";
 
 function parseMarketingNum(v) {
   if (v == null || v === "") return null;
