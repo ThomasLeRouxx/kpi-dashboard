@@ -822,23 +822,44 @@ function MarketingDashboard() {
           <div style={{ fontSize:11, color:"#7A8299", margin:"4px 0 14px", fontFamily:"'IBM Plex Mono',monospace" }}>
             Target 2.61% · {msPct.toFixed(0)}% semaines atteintes
           </div>
-          <svg width="100%" viewBox="0 0 200 56" style={{ overflow:"visible" }}>
-            {msVals.map((v, i) => {
-              if (v == null) return null;
-              const bw = Math.max(200 / Math.max(msVals.length, 1) - 2, 2);
-              const bh = Math.min((v / (MS_TARGET * 3)) * 40, 40);
-              const bx = i * (200 / Math.max(msVals.length, 1));
-              return (
-                <g key={i}>
-                  <rect x={bx} y={40 - bh} width={bw} height={bh}
-                    fill={v >= MS_TARGET ? "#10B981" : "#EF4444"} rx={1} opacity={0.85}/>
-                  <text x={bx + bw/2} y={54} textAnchor="middle" fontSize={7}
-                    fill="#7A8299" fontFamily="'IBM Plex Mono',monospace">{v.toFixed(1)}</text>
-                </g>
-              );
-            })}
-            <line x1={0} y1={40 - (1/3)*40} x2={200} y2={40 - (1/3)*40} stroke="#FCD15A" strokeWidth={1} strokeDasharray="3 2"/>
-          </svg>
+          {(() => {
+            const [msTip, setMsTip] = useState(null);
+            const bSlot = 200 / Math.max(msVals.length, 1);
+            return (
+              <svg width="100%" viewBox="0 0 200 48" style={{ overflow:"visible" }}
+                onMouseLeave={() => setMsTip(null)}>
+                {msVals.map((v, i) => {
+                  if (v == null) return null;
+                  const bw = Math.max(bSlot - 2, 2);
+                  const bh = Math.min((v / (MS_TARGET * 3)) * 40, 40);
+                  const bx = i * bSlot;
+                  return (
+                    <g key={i} style={{ cursor:"crosshair" }}
+                      onMouseEnter={() => setMsTip({ i, x: bx + bw/2, v })}>
+                      <rect x={bx} y={40 - bh} width={bw} height={bh}
+                        fill={v >= MS_TARGET ? "#10B981" : "#EF4444"} rx={1} opacity={0.85}/>
+                    </g>
+                  );
+                })}
+                <line x1={0} y1={40 - (1/3)*40} x2={200} y2={40 - (1/3)*40}
+                  stroke="#FCD15A" strokeWidth={1} strokeDasharray="3 2"/>
+                {msTip && (() => {
+                  const tx = Math.min(Math.max(msTip.x, 24), 176);
+                  const ty = Math.max(2, 40 - Math.min((msTip.v / (MS_TARGET * 3)) * 40, 40) - 30);
+                  const label = s1Rows[msTip.i]?.[C.week]?.replace(/\s*:.*/, "").trim() ?? "";
+                  return (
+                    <g pointerEvents="none">
+                      <rect x={tx - 26} y={ty} width={52} height={24} rx={4} fill="#1D1D24" opacity={0.9}/>
+                      <text x={tx} y={ty + 10} textAnchor="middle" fontSize={9}
+                        fill="#FCD15A" fontFamily="'IBM Plex Mono',monospace">{msTip.v.toFixed(2)}%</text>
+                      <text x={tx} y={ty + 21} textAnchor="middle" fontSize={8}
+                        fill="#94A3B8" fontFamily="'IBM Plex Mono',monospace">{label}</text>
+                    </g>
+                  );
+                })()}
+              </svg>
+            );
+          })()}
         </div>
 
         {/* TEE Ranking */}
