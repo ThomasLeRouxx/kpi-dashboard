@@ -618,7 +618,8 @@ function parseMarketingCsv(text) {
   return dataRows;
 }
 
-function MktLineChart({ data, color = "#3B82F6", height = 80, secondaryData, secondaryColor = "#F59E0B", refLine = null }) {
+function MktLineChart({ data, color = "#3B82F6", height = 80, secondaryData, secondaryColor = "#F59E0B", refLine = null, labels = [], formatVal }) {
+  const [tip, setTip] = useState(null);
   if (!data || data.length === 0) return null;
   const W = 400; const H = height;
   const allVals = [...data, ...(secondaryData ?? [])].filter(v => v != null);
@@ -629,8 +630,7 @@ function MktLineChart({ data, color = "#3B82F6", height = 80, secondaryData, sec
   const xOf = i => (i / Math.max(data.length - 1, 1)) * W;
   const yOf = v => v == null ? null : H - 4 - ((v - minV) / range) * (H - 12);
   function makePath(series) {
-    const segs = [];
-    let moved = false;
+    const segs = []; let moved = false;
     series.forEach((v, i) => {
       const y = yOf(v);
       if (y == null) { moved = false; return; }
@@ -639,13 +639,54 @@ function MktLineChart({ data, color = "#3B82F6", height = 80, secondaryData, sec
     });
     return segs.join(" ");
   }
+  const fmt = formatVal ?? (v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v % 1 === 0 ? String(v) : v.toFixed(2));
   const refY = refLine != null ? yOf(refLine) : null;
+  const zoneW = W / Math.max(data.length, 1);
+
   return (
-    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+    <svg width="100%" viewBox={`0 0 ${W} ${H + 4}`} style={{ overflow: "visible" }}
+      onMouseLeave={() => setTip(null)}>
       {refY != null && <line x1={0} y1={refY} x2={W} y2={refY} stroke="#94A3B8" strokeWidth={1} strokeDasharray="4 3"/>}
       <path d={makePath(data)} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round"/>
       {secondaryData && <path d={makePath(secondaryData)} fill="none" stroke={secondaryColor} strokeWidth={1.5} strokeLinejoin="round" strokeDasharray="5 3"/>}
-      {data.map((v, i) => v != null && <circle key={i} cx={xOf(i)} cy={yOf(v)} r={2.5} fill={color}/>)}
+
+      {/* hit zones + dots */}
+      {data.map((v, i) => {
+        const cx = xOf(i); const cy = yOf(v);
+        const v2 = secondaryData?.[i];
+        return (
+          <g key={i}>
+            {cy != null && <circle cx={cx} cy={cy} r={3} fill={color}/>}
+            {v2 != null && <circle cx={cx} cy={yOf(v2)} r={2.5} fill={secondaryColor} opacity={0.8}/>}
+            <rect x={cx - zoneW / 2} y={0} width={zoneW} height={H}
+              fill="transparent" style={{ cursor: "crosshair" }}
+              onMouseEnter={() => setTip({ i, x: cx, v, v2 })}/>
+          </g>
+        );
+      })}
+
+      {/* tooltip */}
+      {tip != null && (() => {
+        const tx = Math.min(Math.max(tip.x, 20), W - 60);
+        const lines = [
+          tip.v != null ? { txt: fmt(tip.v), col: color } : null,
+          tip.v2 != null ? { txt: fmt(tip.v2), col: secondaryColor } : null,
+          labels[tip.i] ? { txt: labels[tip.i], col: "#7A8299" } : null,
+        ].filter(Boolean);
+        const bh = lines.length * 14 + 8;
+        const bw = 72;
+        const ty = Math.max(4, (yOf(tip.v) ?? 0) - bh - 6);
+        return (
+          <g pointerEvents="none">
+            <rect x={tx - bw/2} y={ty} width={bw} height={bh} rx={4}
+              fill="#1D1D24" opacity={0.9}/>
+            {lines.map((l, li) => (
+              <text key={li} x={tx} y={ty + 13 + li * 14} textAnchor="middle"
+                fontSize={10} fill={l.col} fontFamily="'IBM Plex Mono',monospace">{l.txt}</text>
+            ))}
+          </g>
+        );
+      })()}
     </svg>
   );
 }
@@ -781,13 +822,20 @@ function MarketingDashboard() {
           <div style={{ fontSize:11, color:"#7A8299", margin:"4px 0 14px", fontFamily:"'IBM Plex Mono',monospace" }}>
             Target 2.61% · {msPct.toFixed(0)}% semaines atteintes
           </div>
-          <svg width="100%" viewBox="0 0 200 48" style={{ overflow:"visible" }}>
+          <svg width="100%" viewBox="0 0 200 56" style={{ overflow:"visible" }}>
             {msVals.map((v, i) => {
               if (v == null) return null;
               const bw = Math.max(200 / Math.max(msVals.length, 1) - 2, 2);
               const bh = Math.min((v / (MS_TARGET * 3)) * 40, 40);
-              return <rect key={i} x={i * (200 / Math.max(msVals.length, 1))} y={40 - bh} width={bw} height={bh}
-                fill={v >= MS_TARGET ? "#10B981" : "#EF4444"} rx={1} opacity={0.85}/>;
+              const bx = i * (200 / Math.max(msVals.length, 1));
+              return (
+                <g key={i}>
+                  <rect x={bx} y={40 - bh} width={bw} height={bh}
+                    fill={v >= MS_TARGET ? "#10B981" : "#EF4444"} rx={1} opacity={0.85}/>
+                  <text x={bx + bw/2} y={54} textAnchor="middle" fontSize={7}
+                    fill="#7A8299" fontFamily="'IBM Plex Mono',monospace">{v.toFixed(1)}</text>
+                </g>
+              );
             })}
             <line x1={0} y1={40 - (1/3)*40} x2={200} y2={40 - (1/3)*40} stroke="#FCD15A" strokeWidth={1} strokeDasharray="3 2"/>
           </svg>
@@ -850,7 +898,8 @@ function MarketingDashboard() {
             <span style={{ fontSize:10, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>Smart Engagement</span>
           </div>
         </div>
-        <MktLineChart data={engVals} color="#3B82F6" secondaryData={smartEngVals} secondaryColor="#F59E0B" height={80}/>
+        <MktLineChart data={engVals} color="#3B82F6" secondaryData={smartEngVals} secondaryColor="#F59E0B" height={80}
+          labels={weekLabels} formatVal={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)}/>
         <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
           {xAxisLabels(weekLabels).map((l, i) => (
             <span key={i} style={{ fontSize:8, fontFamily:"'IBM Plex Mono',monospace", color:"#b0bec8" }}>{l}</span>
@@ -861,7 +910,8 @@ function MarketingDashboard() {
       {/* ── Section 3 : Smart Followers ── */}
       <div style={cardStyle}>
         {secTitle("Smart Followers · Évolution")}
-        <MktLineChart data={sfVals} color="#8B5CF6" height={80} refLine={348}/>
+        <MktLineChart data={sfVals} color="#8B5CF6" height={80} refLine={348}
+          labels={weekLabels} formatVal={v => String(Math.round(v))}/>
         <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
           {xAxisLabels(weekLabels).map((l, i) => (
             <span key={i} style={{ fontSize:8, fontFamily:"'IBM Plex Mono',monospace", color:"#b0bec8" }}>{l}</span>
@@ -875,7 +925,8 @@ function MarketingDashboard() {
       {/* ── Section 4 : Net Sentiment ── */}
       <div style={cardStyle}>
         {secTitle("Net Sentiment · %")}
-        <MktLineChart data={sentVals} color={sentColor} height={80} refLine={0.7}/>
+        <MktLineChart data={sentVals} color={sentColor} height={80} refLine={0.7}
+          labels={weekLabels} formatVal={v => `${(v*100).toFixed(0)}%`}/>
         <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
           {xAxisLabels(weekLabels).map((l, i) => (
             <span key={i} style={{ fontSize:8, fontFamily:"'IBM Plex Mono',monospace", color:"#b0bec8" }}>{l}</span>
