@@ -695,6 +695,7 @@ function MarketingDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
   const [rows, setRows]       = useState([]);
+  const [msTip, setMsTip]     = useState(null);
 
   async function loadData() {
     setLoading(true);
@@ -823,7 +824,6 @@ function MarketingDashboard() {
             Target 2.61% · {msPct.toFixed(0)}% semaines atteintes
           </div>
           {(() => {
-            const [msTip, setMsTip] = useState(null);
             const bSlot = 200 / Math.max(msVals.length, 1);
             return (
               <svg width="100%" viewBox="0 0 200 48" style={{ overflow:"visible" }}
