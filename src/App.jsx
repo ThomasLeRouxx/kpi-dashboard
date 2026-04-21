@@ -567,149 +567,421 @@ function ReachChart({ byWeek, byMonth }) {
   );
 }
 
-// ─── NOUVEAU : Onglet Marketing Kaito ────────────────────────────────────────
-function MarketingDashboard({ data, loading, kaitoData }) {
+// ─── MARKETING DASHBOARD (Google Sheet autonome) ─────────────────────────────
+const MKT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1ax7iv9ZINDkhvpDlc_AdofsghKBSfIaO_L54qoHFgV8/export?format=csv&gid=0";
+
+function parseMarketingNum(v) {
+  if (v == null || v === "") return null;
+  const s = String(v).trim().replace(/,/g, "");
+  if (s.endsWith("%")) { const n = parseFloat(s); return isNaN(n) ? null : n / 100; }
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+function parseCsvLine(line) {
+  const vals = [];
+  let inQuote = false, cur = "";
+  for (const ch of line) {
+    if (ch === '"') { inQuote = !inQuote; }
+    else if (ch === "," && !inQuote) { vals.push(cur.trim()); cur = ""; }
+    else { cur += ch; }
+  }
+  vals.push(cur.trim());
+  return vals;
+}
+
+function parseMarketingCsv(text) {
+  const lines = text.split(/\r?\n/);
+  const blocks = [];
+  let cur = [];
+  for (const line of lines) {
+    const isBlank = parseCsvLine(line).every(c => c === "");
+    if (isBlank) { if (cur.length > 0) { blocks.push(cur); cur = []; } }
+    else { cur.push(line); }
+  }
+  if (cur.length > 0) blocks.push(cur);
+
+  function blockToRows(block) {
+    if (block.length < 2) return [];
+    const headers = parseCsvLine(block[0]);
+    return block.slice(1).map(line => {
+      const vals = parseCsvLine(line);
+      const obj = {};
+      headers.forEach((h, i) => { obj[h.trim()] = (vals[i] ?? "").trim(); });
+      return obj;
+    });
+  }
+
+  let weekTable = [], linkedinTable = [], liveStreamTable = [];
+  for (const block of blocks) {
+    if (block.length < 2) continue;
+    const firstHeader = parseCsvLine(block[0])[0]?.trim().toLowerCase();
+    const headerLine = block[0].toLowerCase();
+    if (firstHeader === "week" && headerLine.includes("mindshare arbitrum")) {
+      weekTable = blockToRows(block);
+    } else if (firstHeader === "semaine" && headerLine.includes("reactions") && headerLine.includes("followers")) {
+      linkedinTable = blockToRows(block);
+    } else if (firstHeader === "semaine" && headerLine.includes("live exposure") && headerLine.includes("viewers")) {
+      liveStreamTable = blockToRows(block);
+    }
+  }
+  return { weekTable, linkedinTable, liveStreamTable };
+}
+
+function MktLineChart({ data, color = "#3B82F6", height = 80, secondaryData, secondaryColor = "#F59E0B", refLine = null }) {
+  if (!data || data.length === 0) return null;
+  const W = 400; const H = height;
+  const allVals = [...data, ...(secondaryData ?? [])].filter(v => v != null);
+  if (allVals.length === 0) return null;
+  const minV = Math.min(...allVals);
+  const maxV = Math.max(...allVals);
+  const range = maxV - minV || 1;
+  const xOf = i => (i / Math.max(data.length - 1, 1)) * W;
+  const yOf = v => v == null ? null : H - 4 - ((v - minV) / range) * (H - 12);
+  function makePath(series) {
+    const segs = [];
+    let moved = false;
+    series.forEach((v, i) => {
+      const y = yOf(v);
+      if (y == null) { moved = false; return; }
+      segs.push(`${moved ? "L" : "M"} ${xOf(i).toFixed(1)} ${y.toFixed(1)}`);
+      moved = true;
+    });
+    return segs.join(" ");
+  }
+  const refY = refLine != null ? yOf(refLine) : null;
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+      {refY != null && <line x1={0} y1={refY} x2={W} y2={refY} stroke="#94A3B8" strokeWidth={1} strokeDasharray="4 3"/>}
+      <path d={makePath(data)} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round"/>
+      {secondaryData && <path d={makePath(secondaryData)} fill="none" stroke={secondaryColor} strokeWidth={1.5} strokeLinejoin="round" strokeDasharray="5 3"/>}
+      {data.map((v, i) => v != null && <circle key={i} cx={xOf(i)} cy={yOf(v)} r={2.5} fill={color}/>)}
+    </svg>
+  );
+}
+
+function MarketingDashboard() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+  const [parsed, setParsed]   = useState(null);
+
+  async function loadData() {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(MKT_SHEET_URL);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setParsed(parseMarketingCsv(await r.text()));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadData(); }, []);
+
   if (loading) return (
     <div style={{ textAlign:"center", padding:"80px 0", color:"#7A8299" }}>
       <div style={{ fontSize:40, marginBottom:16 }}>⟳</div>
-      <div style={{ fontSize:13, fontFamily:"'IBM Plex Mono',monospace" }}>Chargement Kaito Marketing...</div>
+      <div style={{ fontSize:13, fontFamily:"'IBM Plex Mono',monospace" }}>Chargement Google Sheet Marketing...</div>
     </div>
   );
 
-  // Données live Kaito (toujours disponibles si KAITO_API_KEY configurée)
-  const liveMs  = kaitoData?.mindshare;
-  const liveTee = kaitoData?.teeRank;
+  if (error) return (
+    <div style={{ background:"#FEF2F2", border:"0.8px solid #EF4444", borderRadius:10, padding:"32px", textAlign:"center" }}>
+      <div style={{ fontSize:13, color:"#EF4444", marginBottom:12 }}>Erreur de chargement : {error}</div>
+      <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
+        <a href="https://docs.google.com/spreadsheets/d/1ax7iv9ZINDkhvpDlc_AdofsghKBSfIaO_L54qoHFgV8" target="_blank" rel="noopener noreferrer"
+          style={{ fontSize:12, color:"#3B82F6", fontFamily:"'IBM Plex Mono',monospace" }}>Ouvrir le Sheet</a>
+        <button onClick={loadData} style={{ fontSize:12, padding:"4px 14px", borderRadius:6, border:"0.8px solid #EF4444", background:"#fff", cursor:"pointer" }}>
+          Réessayer
+        </button>
+      </div>
+    </div>
+  );
 
-  // Treemap depuis kaitoData (live) — breakdown complet
-  const breakdown  = liveMs?.detail?.breakdown ?? [];
-  const total_raw  = liveMs?.detail?.total_raw ?? 0;
+  const { weekTable, linkedinTable, liveStreamTable } = parsed ?? {};
 
-  // TEE ranking depuis kaitoData
-  const teeRanking = liveTee?.detail?.ranking ?? [];
+  // Toutes les semaines avec un label "week"
+  const weekRows = (weekTable ?? []).filter(r => r.week?.trim());
 
-  // Valeur mindshare : Sheet > live
-  const msValue = data?.mindshareRLC?.value ?? liveMs?.value ?? null;
-  // TEE rank : Sheet > live
-  const teeRankNum = data?.teeRank ?? liveTee?.value ?? null;
+  // S1 2026 = w.1 à w.26 (les semaines H2 2025 sont w.27-w.53)
+  const s1Rows = weekRows.filter(r => {
+    const m = r.week?.trim().match(/w\.(\d+)/i);
+    return m && +m[1] >= 1 && +m[1] <= 26;
+  });
 
-  const sf  = data?.smartFollowers ?? {};
-  const eng = data?.engagement ?? {};
-  const hist = data?.history ?? [];
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  const N = k => parseMarketingNum(k);
+  const cardStyle = { background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"20px 24px" };
+  const secTitle  = t => (
+    <div style={{ fontSize:10, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:14 }}>{t}</div>
+  );
 
-  const noSheetData = !data || !data.week;
+  // ── Section 1 — Mindshare Privacy Infra ──────────────────────────────────────
+  const MS_TARGET = 0.0261;
+  const msVals = s1Rows.map(r => N(r["Mindshare Privacy Infra"]));
+  const msValid = msVals.filter(v => v != null);
+  const msAvg  = msValid.length ? msValid.reduce((s,v) => s+v, 0) / msValid.length : 0;
+  const msPct  = msValid.length ? msValid.filter(v => v >= MS_TARGET).length / msValid.length * 100 : 0;
 
-  const kpiCards = [
-    { label:"Mindshare RLC",   value: msValue != null ? `${Number(msValue).toFixed(2)}%` : "—",
-      icon:"📊", color:"#FCD15A", sub: "Privacy Infra · W-2" },
-    { label:"Rang TEE",        value: teeRankNum != null ? `#${teeRankNum}` : "—",
-      icon:"🏆", color:"#EF4444", sub: "RLC · ROSE · PHA · SCRT" },
-    { label:"Smart Followers", value: sf.count != null ? sf.count.toLocaleString("fr-FR") : "—",
-      icon:"🧠", color:"#3B82F6",
-      sub: sf.count == null ? "Non disponible (plan Kaito)" : (sf.weekly_change != null ? `${sf.weekly_change >= 0 ? "+" : ""}${sf.weekly_change} cette semaine` : "") },
-    { label:"Engagement total", value: eng.total != null ? eng.total.toLocaleString("fr-FR") : "—",
-      icon:"⚡", color:"#F59E0B",
-      sub: eng.total == null ? "Non disponible (plan Kaito)" : (eng.smart != null ? `dont ${eng.smart} smart` : "") },
-  ];
+  // ── Section 1 — TEE Ranking ───────────────────────────────────────────────────
+  const teeVals = s1Rows.map(r => { const n = parseInt(r["TEE Ranking"]); return isNaN(n) ? null : n; });
+  const teeValid = teeVals.filter(v => v != null);
+  const teePct = teeValid.length ? teeValid.filter(v => v === 1).length / teeValid.length * 100 : 0;
+
+  // ── Section 1 — Total Impressions S1 ─────────────────────────────────────────
+  const IMP_TARGET = 5000000;
+  const sumKey = k => s1Rows.reduce((s, r) => s + (N(r[k]) ?? 0), 0);
+  const totalImp   = sumKey("Total Impressions");
+  const iexecImp   = sumKey("iExec Imp.");
+  const techAmbImp = sumKey("Tech Ambs.");
+  const badgesImp  = sumKey("Badges Holders Imp.");
+  const impPct = Math.min(totalImp / IMP_TARGET * 100, 100);
+
+  // ── Section 2 — Engagement ────────────────────────────────────────────────────
+  const weekLabels  = weekRows.map(r => r.week?.trim());
+  const engVals     = weekRows.map(r => N(r["Engagement"]));
+  const smartEngVals = weekRows.map(r => N(r["Smart Engagement"]));
+
+  // ── Section 3 — Smart Followers ───────────────────────────────────────────────
+  const sfVals = weekRows.map(r => N(r["Smart Followers"]));
+
+  // ── Section 4 — Net Sentiment ─────────────────────────────────────────────────
+  const sentVals = weekRows.map(r => N(r["Net Sentiment"]));
+  const lastSent = sentVals.filter(v => v != null).at(-1) ?? 0;
+  const sentColor = lastSent >= 0.7 ? "#10B981" : lastSent >= 0.5 ? "#F59E0B" : "#EF4444";
+
+  // ── Section 5 — Impressions table (last 8 weeks) ──────────────────────────────
+  const last8 = weekRows.slice(-8);
+
+  // ── Section 6 — Live Streams ─────────────────────────────────────────────────
+  const liveRows = (liveStreamTable ?? []).filter(r => r["Semaine"]?.trim());
+  const totalExposure = liveRows.reduce((s, r) => s + (N(r["Live Exposure"]) ?? 0), 0);
+
+  // ── Section 7 — LinkedIn ─────────────────────────────────────────────────────
+  const liRows = (linkedinTable ?? []).filter(r => r["Semaine"]?.trim());
+  const lastLi = liRows.at(-1);
+  const prevLi = liRows.at(-2);
+  const liFollow = N(lastLi?.["Followers"]);
+  const liChange = liFollow != null && N(prevLi?.["Followers"]) != null ? liFollow - N(prevLi["Followers"]) : null;
+
+  function fmtNum(n) {
+    if (n == null) return "—";
+    if (n >= 1_000_000) return `${(n/1_000_000).toFixed(2)}M`;
+    if (n >= 1_000) return `${(n/1_000).toFixed(0)}k`;
+    return n.toLocaleString("fr-FR");
+  }
+
+  function xAxisLabels(labels) {
+    const step = Math.ceil(labels.length / 6);
+    return labels.filter((_, i) => i % step === 0);
+  }
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:24 }}>
 
-      {noSheetData && (
-        <div style={{ background:"#FCD15A11", border:"0.8px solid #FCD15A55", borderRadius:10, padding:"14px 18px",
-          fontSize:12, color:"#92700A", fontFamily:"'IBM Plex Mono',monospace" }}>
-          Smart Followers et Engagement nécessitent un plan Kaito avancé. Mindshare et TEE affichés depuis Weekly_Snapshot.
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div style={{ fontSize:10, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>
+          Marketing Analytics · Google Sheet · {s1Rows.length} semaines S1 2026
+        </div>
+        <button onClick={loadData} style={{ fontSize:11, padding:"5px 14px", borderRadius:6, border:"0.8px solid #d1d8e0", background:"#fff", cursor:"pointer", fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>
+          Rafraîchir
+        </button>
+      </div>
+
+      {/* ── Section 1 : KPIs S1 2026 ── */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
+
+        {/* Mindshare Privacy Infra */}
+        <div style={cardStyle}>
+          {secTitle("Mindshare Privacy Infra · S1 2026")}
+          <div style={{ fontSize:28, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", color: msAvg >= MS_TARGET ? "#10B981" : "#EF4444" }}>
+            {(msAvg * 100).toFixed(2)}%
+          </div>
+          <div style={{ fontSize:11, color:"#7A8299", margin:"4px 0 14px", fontFamily:"'IBM Plex Mono',monospace" }}>
+            Target 2.61% · {msPct.toFixed(0)}% semaines atteintes
+          </div>
+          <svg width="100%" viewBox="0 0 200 48" style={{ overflow:"visible" }}>
+            {msVals.map((v, i) => {
+              if (v == null) return null;
+              const bw = Math.max(200 / msVals.length - 2, 2);
+              const bh = Math.min((v / (MS_TARGET * 3)) * 40, 40);
+              return <rect key={i} x={i * (200 / msVals.length)} y={40 - bh} width={bw} height={bh}
+                fill={v >= MS_TARGET ? "#10B981" : "#EF4444"} rx={1} opacity={0.85}/>;
+            })}
+            <line x1={0} y1={40 - (1/3)*40} x2={200} y2={40 - (1/3)*40} stroke="#FCD15A" strokeWidth={1} strokeDasharray="3 2"/>
+          </svg>
+        </div>
+
+        {/* TEE Ranking */}
+        <div style={cardStyle}>
+          {secTitle("TEE Ranking · S1 2026")}
+          <div style={{ fontSize:28, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", color: teePct >= 50 ? "#10B981" : "#EF4444" }}>
+            {teePct.toFixed(0)}%
+          </div>
+          <div style={{ fontSize:11, color:"#7A8299", margin:"4px 0 14px", fontFamily:"'IBM Plex Mono',monospace" }}>
+            Target 50% semaines en #1
+          </div>
+          <svg width="100%" viewBox="0 0 200 48" style={{ overflow:"visible" }}>
+            <line x1={0} y1={24} x2={200} y2={24} stroke="#f0f0f0" strokeWidth={1}/>
+            {teeVals.map((v, i) => {
+              if (v == null) return null;
+              const cx = (i / Math.max(teeVals.length - 1, 1)) * 200;
+              const cy = ((v - 1) / 3) * 40 + 4;
+              return <circle key={i} cx={cx} cy={cy} r={4} fill={v === 1 ? "#10B981" : v === 2 ? "#FCD15A" : "#EF4444"}/>;
+            })}
+          </svg>
+        </div>
+
+        {/* Total Impressions */}
+        <div style={cardStyle}>
+          {secTitle("Total Impressions · S1 2026")}
+          <div style={{ fontSize:28, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", color: impPct >= 100 ? "#10B981" : impPct >= 50 ? "#FCD15A" : "#EF4444" }}>
+            {fmtNum(totalImp)}
+          </div>
+          <div style={{ fontSize:11, color:"#7A8299", margin:"4px 0 14px", fontFamily:"'IBM Plex Mono',monospace" }}>
+            Target 5M · {impPct.toFixed(1)}% atteint
+          </div>
+          <div style={{ background:"#f4f6fa", borderRadius:4, height:10, overflow:"hidden", marginBottom:14 }}>
+            <div style={{ width:`${impPct}%`, height:"100%", background: impPct >= 100 ? "#10B981" : "#FCD15A", borderRadius:4 }}/>
+          </div>
+          {[["iExec", iexecImp, "#FCD15A"], ["Tech Ambs.", techAmbImp, "#3B82F6"], ["Badges", badgesImp, "#8B5CF6"]].map(([label, val, color]) => (
+            <div key={label} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+              <div style={{ fontSize:9, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", width:58 }}>{label}</div>
+              <div style={{ flex:1, background:"#f4f6fa", borderRadius:3, height:6 }}>
+                <div style={{ width:`${Math.min(val / IMP_TARGET * 100, 100)}%`, height:"100%", background:color, borderRadius:3 }}/>
+              </div>
+              <div style={{ fontSize:9, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", width:46, textAlign:"right" }}>{fmtNum(val)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Section 2 : Engagement Twitter ── */}
+      <div style={cardStyle}>
+        {secTitle("Engagement Twitter · Total vs Smart")}
+        <div style={{ display:"flex", gap:20, marginBottom:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <div style={{ width:20, height:3, background:"#3B82F6", borderRadius:2 }}/>
+            <span style={{ fontSize:10, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>Total Engagements</span>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <div style={{ width:20, height:2, borderTop:"2px dashed #F59E0B" }}/>
+            <span style={{ fontSize:10, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>Smart Engagement</span>
+          </div>
+        </div>
+        <MktLineChart data={engVals} color="#3B82F6" secondaryData={smartEngVals} secondaryColor="#F59E0B" height={80}/>
+        <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
+          {xAxisLabels(weekLabels).map((l, i) => (
+            <span key={i} style={{ fontSize:8, fontFamily:"'IBM Plex Mono',monospace", color:"#b0bec8" }}>{l}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Section 3 : Smart Followers ── */}
+      <div style={cardStyle}>
+        {secTitle("Smart Followers · Évolution")}
+        <MktLineChart data={sfVals} color="#8B5CF6" height={80} refLine={348}/>
+        <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
+          {xAxisLabels(weekLabels).map((l, i) => (
+            <span key={i} style={{ fontSize:8, fontFamily:"'IBM Plex Mono',monospace", color:"#b0bec8" }}>{l}</span>
+          ))}
+        </div>
+        <div style={{ fontSize:10, color:"#94A3B8", marginTop:4, fontFamily:"'IBM Plex Mono',monospace" }}>
+          Ligne référence : 348 (valeur actuelle)
+        </div>
+      </div>
+
+      {/* ── Section 4 : Net Sentiment ── */}
+      <div style={cardStyle}>
+        {secTitle("Net Sentiment · %")}
+        <MktLineChart data={sentVals} color={sentColor} height={80} refLine={0.7}/>
+        <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
+          {xAxisLabels(weekLabels).map((l, i) => (
+            <span key={i} style={{ fontSize:8, fontFamily:"'IBM Plex Mono',monospace", color:"#b0bec8" }}>{l}</span>
+          ))}
+        </div>
+        <div style={{ fontSize:10, color:"#94A3B8", marginTop:4, fontFamily:"'IBM Plex Mono',monospace" }}>
+          Ligne référence : 70% (seuil positif)
+        </div>
+      </div>
+
+      {/* ── Section 5 : Impressions table ── */}
+      <div style={cardStyle}>
+        {secTitle("Détail Impressions · 8 dernières semaines")}
+        <div style={{ overflowX:"auto" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11, fontFamily:"'IBM Plex Mono',monospace" }}>
+            <thead>
+              <tr style={{ borderBottom:"1px solid #f0f0f0" }}>
+                {["Semaine","Total Imp.","iExec","Tech Ambs.","Badges","Engagement"].map(h => (
+                  <th key={h} style={{ padding:"6px 10px", textAlign: h === "Semaine" ? "left" : "right", color:"#7A8299", fontWeight:400, fontSize:10, whiteSpace:"nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {last8.map((r, i) => (
+                <tr key={i} style={{ borderBottom:"0.5px solid #f8f8f8" }}>
+                  <td style={{ padding:"6px 10px", color:"#1D1D24", fontWeight:700 }}>{r.week}</td>
+                  {[["Total Impressions"], ["iExec Imp."], ["Tech Ambs."], ["Badges Holders Imp."], ["Engagement"]].map(([k]) => (
+                    <td key={k} style={{ padding:"6px 10px", textAlign:"right", color:"#1D1D24" }}>{fmtNum(N(r[k]))}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Section 6 : Live Streams Binance Square ── */}
+      {liveRows.length > 0 && (
+        <div style={cardStyle}>
+          {secTitle(`Live Streams Binance Square · Exposition totale : ${fmtNum(totalExposure)}`)}
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11, fontFamily:"'IBM Plex Mono',monospace" }}>
+              <thead>
+                <tr style={{ borderBottom:"1px solid #f0f0f0" }}>
+                  {["Semaine","Titre","Exposition","Viewers","Follows gagnés"].map(h => (
+                    <th key={h} style={{ padding:"6px 10px", textAlign: h === "Titre" || h === "Semaine" ? "left" : "right", color:"#7A8299", fontWeight:400, fontSize:10 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {liveRows.map((r, i) => (
+                  <tr key={i} style={{ borderBottom:"0.5px solid #f8f8f8" }}>
+                    <td style={{ padding:"6px 10px", color:"#1D1D24", fontWeight:700, whiteSpace:"nowrap" }}>{r["Semaine"]}</td>
+                    <td style={{ padding:"6px 10px", color:"#1D1D24", maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      {r["Nom/Lien"] ?? r["Nom"] ?? "—"}
+                    </td>
+                    {["Live Exposure","Viewers","New Followers"].map(k => (
+                      <td key={k} style={{ padding:"6px 10px", textAlign:"right", color:"#1D1D24" }}>{fmtNum(N(r[k]))}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* ── KPI Cards ── */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12 }}>
-        {kpiCards.map(m => (
-          <div key={m.label} style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"16px 18px" }}>
-            <div style={{ fontSize:18, marginBottom:8 }}>{m.icon}</div>
-            <div style={{ fontSize:24, fontWeight:700, color:m.color, fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{m.value}</div>
-            <div style={{ fontSize:10, color:"#7A8299", marginTop:6, fontFamily:"'IBM Plex Mono',monospace", textTransform:"uppercase", letterSpacing:"0.08em" }}>{m.label}</div>
-            {m.sub && <div style={{ fontSize:10, color: m.sub.includes("plan Kaito") ? "#94A3B8" : "#7A8299", marginTop:4 }}>{m.sub}</div>}
-          </div>
-        ))}
-      </div>
-
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-
-        {/* ── Mindshare Treemap (depuis kaitoData live) ── */}
-        {breakdown.length > 0 && (
-          <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
-            <MindshareTreemap breakdown={breakdown} week={liveMs?.week ?? data?.week ?? ""} />
-            <div style={{ marginTop:16, display:"flex", gap:8, flexWrap:"wrap" }}>
-              {breakdown.filter(x => x.value > 0).sort((a,b)=>b.value-a.value).map(x => (
-                <div key={x.token} style={{ fontSize:10, fontFamily:"'IBM Plex Mono',monospace", padding:"2px 8px",
-                  borderRadius:10, background: x.token === "RLC" ? "#FCD15A22" : "#f4f6fa",
-                  color: x.token === "RLC" ? "#92700A" : "#7A8299",
-                  border: x.token === "RLC" ? "0.8px solid #FCD15A" : "none", fontWeight: x.token === "RLC" ? 700 : 400 }}>
-                  {x.token}: {(total_raw > 0 ? (x.value / total_raw * 100) : 0).toFixed(1)}%
-                </div>
-              ))}
-            </div>
+      {/* ── Section 7 : LinkedIn ── */}
+      <div style={cardStyle}>
+        {secTitle("LinkedIn · Followers")}
+        <div style={{ fontSize:28, fontWeight:700, color:"#0A66C2", fontFamily:"'IBM Plex Mono',monospace" }}>
+          {liFollow != null ? liFollow.toLocaleString("fr-FR") : "—"}
+        </div>
+        {liChange != null && (
+          <div style={{ fontSize:11, color: liChange >= 0 ? "#10B981" : "#EF4444", marginTop:6, fontFamily:"'IBM Plex Mono',monospace" }}>
+            {liChange >= 0 ? "+" : ""}{liChange} vs semaine précédente
           </div>
         )}
-
-        {/* ── TEE Ranking (depuis kaitoData live) ── */}
-        {teeRanking.length > 0 && (
-          <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
-            <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:16 }}>
-              CLASSEMENT TEE · {liveTee?.week ?? data?.week ?? ""}
-            </div>
-            {teeRanking.map(r => (
-              <div key={r.token} style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12, padding:"10px 14px",
-                background: r.token === "RLC" ? "#FCD15A11" : "#f9fafb",
-                border: r.token === "RLC" ? "0.8px solid #FCD15A55" : "0.8px solid #f0f0f0",
-                borderRadius:8 }}>
-                <div style={{ fontSize:20, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700,
-                  color: r.rank === 1 ? "#FCD15A" : r.rank === 2 ? "#94A3B8" : "#CD7F32" }}>
-                  #{r.rank}
-                </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:"#1D1D24", fontFamily:"'IBM Plex Mono',monospace" }}>{r.token}</div>
-                  {r.mindshare > 0 && <div style={{ fontSize:10, color:"#7A8299" }}>{r.mindshare.toFixed(4)}%</div>}
-                </div>
-                {r.token === "RLC" && (
-                  <div style={{ fontSize:10, fontWeight:700, color:"#FCD15A", background:"#FCD15A22", padding:"2px 8px", borderRadius:6 }}>iExec</div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        <div style={{ fontSize:10, color:"#7A8299", marginTop:4, fontFamily:"'IBM Plex Mono',monospace" }}>
+          Semaine {lastLi?.["Semaine"] ?? "—"}
+        </div>
       </div>
 
-      {/* ── Historique mindshare (Weekly_Snapshot) ── */}
-      {hist.length > 0 && (() => {
-        const vals = hist.map(h => h.mindshare || 0);
-        const maxV = Math.max(...vals, 1);
-        const W = 400; const H = 60;
-        const pts = vals.map((v, i) => `${(i / Math.max(vals.length - 1, 1)) * W},${H - (v / maxV) * H}`).join(" ");
-        return (
-          <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
-            <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:16 }}>
-              HISTORIQUE MINDSHARE RLC · {hist.length} SEMAINES
-            </div>
-            <svg width="100%" viewBox={`0 0 ${W} ${H + 16}`} style={{ overflow:"visible" }}>
-              <polyline points={pts} fill="none" stroke="#FCD15A" strokeWidth={2} strokeLinejoin="round"/>
-              {vals.map((v, i) => (
-                <circle key={i} cx={(i / Math.max(vals.length - 1, 1)) * W} cy={H - (v / maxV) * H} r={3} fill="#FCD15A"/>
-              ))}
-              {vals.map((v, i) => (
-                <text key={i} x={(i / Math.max(vals.length - 1, 1)) * W} y={H + 14}
-                  fontSize={8} fill="#7A8299" textAnchor="middle" fontFamily="'IBM Plex Mono',monospace">
-                  {hist[i].week.replace(/\d{4}-/, "")}
-                </text>
-              ))}
-            </svg>
-          </div>
-        );
-      })()}
-
-      <div style={{ fontSize:10, color:"#b0bec8", textAlign:"center", fontFamily:"'IBM Plex Mono',monospace" }}>
-        Données Weekly_Snapshot (kaito_weekly_claude) — semaine {data?.week ?? "—"}
-      </div>
     </div>
   );
 }
@@ -1668,7 +1940,7 @@ export default function Dashboard() {
 
         {/* ── ONGLET MARKETING ── */}
         {activeTab === "marketing" && (
-          <MarketingDashboard data={marketingData} loading={marketingLoading} kaitoData={kaitoData} />
+          <MarketingDashboard />
         )}
 
         <div style={{ textAlign:"center", marginTop:40, fontSize:10, color:"#b0bec8", letterSpacing:"0.1em", fontFamily:"'IBM Plex Mono',monospace" }}>
