@@ -693,7 +693,7 @@ function MktLineChart({ data, color = "#3B82F6", height = 80, secondaryData, sec
   );
 }
 
-function ImpressionsChart({ labels, iexec, techAmb, badges, engagement }) {
+function ImpressionsChart({ labels, iexec, techAmb, badges, engagement, hideTechAmb = false }) {
   const canvasRef = useRef(null);
   const chartRef  = useRef(null);
 
@@ -706,17 +706,15 @@ function ImpressionsChart({ labels, iexec, techAmb, badges, engagement }) {
       if (v >= 1_000) return `${(v / 1_000).toFixed(0)}k`;
       return String(v);
     };
+    const datasets = [
+      { label: "Compte iExec",    data: iexec,      borderColor: "#3B82F6", backgroundColor: "rgba(59,130,246,0.08)",   tension: 0.3, pointRadius: 4, borderWidth: 2,   yAxisID: "y",  spanGaps: false },
+      ...(!hideTechAmb ? [{ label: "Tech Ambassadors", data: techAmb, borderColor: "#8B5CF6", backgroundColor: "rgba(139,92,246,0.08)", tension: 0.3, pointRadius: 4, borderWidth: 2, yAxisID: "y", spanGaps: false }] : []),
+      { label: "Badge Holders",   data: badges,     borderColor: "#F59E0B", backgroundColor: "rgba(245,158,11,0.08)",  tension: 0.3, pointRadius: 4, borderWidth: 2,   yAxisID: "y",  spanGaps: false },
+      { label: "Engagement",      data: engagement, borderColor: "#10B981", backgroundColor: "rgba(16,185,129,0.08)", borderDash: [5, 5], tension: 0.3, pointRadius: 3, borderWidth: 1.5, yAxisID: "y2", spanGaps: false },
+    ];
     chartRef.current = new Chart(canvasRef.current.getContext("2d"), {
       type: "line",
-      data: {
-        labels,
-        datasets: [
-          { label: "Compte iExec",    data: iexec,      borderColor: "#3B82F6", backgroundColor: "rgba(59,130,246,0.08)",   tension: 0.3, pointRadius: 4, borderWidth: 2,   yAxisID: "y",  spanGaps: false },
-          { label: "Tech Ambassadors", data: techAmb,   borderColor: "#8B5CF6", backgroundColor: "rgba(139,92,246,0.08)",  tension: 0.3, pointRadius: 4, borderWidth: 2,   yAxisID: "y",  spanGaps: false },
-          { label: "Badge Holders",   data: badges,     borderColor: "#F59E0B", backgroundColor: "rgba(245,158,11,0.08)",  tension: 0.3, pointRadius: 4, borderWidth: 2,   yAxisID: "y",  spanGaps: false },
-          { label: "Engagement",      data: engagement, borderColor: "#10B981", backgroundColor: "rgba(16,185,129,0.08)", borderDash: [5, 5], tension: 0.3, pointRadius: 3, borderWidth: 1.5, yAxisID: "y2", spanGaps: false },
-        ],
-      },
+      data: { labels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -751,13 +749,13 @@ function ImpressionsChart({ labels, iexec, techAmb, badges, engagement }) {
       },
     });
     return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
-  }, [labels, iexec, techAmb, badges, engagement]);
+  }, [labels, iexec, techAmb, badges, engagement, hideTechAmb]);
 
   const legendItems = [
-    { label: "Compte iExec",    color: "#3B82F6", data: iexec,      dashed: false },
-    { label: "Tech Ambassadors", color: "#8B5CF6", data: techAmb,   dashed: false },
-    { label: "Badge Holders",   color: "#F59E0B", data: badges,     dashed: false },
-    { label: "Engagement",      color: "#10B981", data: engagement, dashed: true  },
+    { label: "Compte iExec",     color: "#3B82F6", data: iexec,      dashed: false },
+    ...(!hideTechAmb ? [{ label: "Tech Ambassadors", color: "#8B5CF6", data: techAmb, dashed: false }] : []),
+    { label: "Badge Holders",    color: "#F59E0B", data: badges,     dashed: false },
+    { label: "Engagement",       color: "#10B981", data: engagement, dashed: true  },
   ];
   const lastNonNull = (arr) => { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i]; return null; };
   const fmtLegend = (v, dashed) => {
@@ -1013,6 +1011,19 @@ function MarketingDashboard() {
           techAmb={dataRows.map(r => get(r, C.techAmb))}
           badges={dataRows.map(r => get(r, C.badge))}
           engagement={dataRows.map(r => get(r, C.engagements))}
+        />
+      </div>
+
+      {/* ── Section impressions iExec + Badges (sans Tech Ambassadors) ── */}
+      <div style={cardStyle}>
+        {secTitle("Impressions iExec + Badges — évolution hebdomadaire")}
+        <ImpressionsChart
+          labels={dataRows.map(r => r[C.week].replace(/^Week\s+(\d+).*$/, "w.$1"))}
+          iexec={dataRows.map(r => get(r, C.xImpressions))}
+          techAmb={dataRows.map(r => get(r, C.techAmb))}
+          badges={dataRows.map(r => get(r, C.badge))}
+          engagement={dataRows.map(r => get(r, C.engagements))}
+          hideTechAmb
         />
       </div>
 
