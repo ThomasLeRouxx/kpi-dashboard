@@ -619,31 +619,6 @@ function parseMarketingCsv(text) {
   return dataRows;
 }
 
-function parseWeekSynth(text) {
-  const allRows = parseFullCsv(text);
-  const parseNum = (s) => s ? parseFloat(String(s).replace(/[\s,]/g, "")) || null : null;
-  // Find header row: col[0] is "week" (case-insensitive) and row contains "iExec Imp."
-  let headerIdx = -1;
-  for (let i = 0; i < allRows.length; i++) {
-    if (allRows[i][0]?.trim().toLowerCase() === "week" && allRows[i].some(c => c.trim() === "iExec Imp.")) {
-      headerIdx = i; break;
-    }
-  }
-  if (headerIdx === -1) return { labels: [], iexec: [], techAmb: [], badges: [], engagement: [] };
-  const header = allRows[headerIdx];
-  const iExecIdx  = header.findIndex(c => c.trim() === "iExec Imp.");
-  const techAmbIdx = header.findIndex(c => c.trim() === "Tech Ambs.");
-  const badgesIdx  = header.findIndex(c => c.trim() === "Badges Holders Imp.");
-  const engIdx     = header.findIndex(c => c.trim() === "Engagement");
-  const dataRows = allRows.slice(headerIdx + 1).filter(r => /^w\.\d+/i.test(r[0] ?? ""));
-  return {
-    labels:     dataRows.map(r => r[0].trim()),
-    iexec:      dataRows.map(r => parseNum(r[iExecIdx])),
-    techAmb:    dataRows.map(r => parseNum(r[techAmbIdx])),
-    badges:     dataRows.map(r => parseNum(r[badgesIdx])),
-    engagement: dataRows.map(r => parseNum(r[engIdx])),
-  };
-}
 
 function MktLineChart({ data, color = "#3B82F6", height = 80, secondaryData, secondaryColor = "#F59E0B", refLine = null, labels = [], formatVal }) {
   const [tip, setTip] = useState(null);
@@ -815,11 +790,10 @@ function ImpressionsChart({ labels, iexec, techAmb, badges, engagement }) {
 }
 
 function MarketingDashboard() {
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(null);
-  const [rows, setRows]         = useState([]);
-  const [msTip, setMsTip]       = useState(null);
-  const [weekSynth, setWeekSynth] = useState({ labels: [], iexec: [], techAmb: [], badges: [], engagement: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+  const [rows, setRows]       = useState([]);
+  const [msTip, setMsTip]     = useState(null);
 
   async function loadData() {
     setLoading(true);
@@ -827,9 +801,7 @@ function MarketingDashboard() {
     try {
       const r = await fetch(MKT_SHEET_URL);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const text = await r.text();
-      setRows(parseMarketingCsv(text));
-      setWeekSynth(parseWeekSynth(text));
+      setRows(parseMarketingCsv(await r.text()));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -1036,11 +1008,11 @@ function MarketingDashboard() {
       <div style={cardStyle}>
         {secTitle("Impressions par source — évolution hebdomadaire")}
         <ImpressionsChart
-          labels={weekSynth.labels}
-          iexec={weekSynth.iexec}
-          techAmb={weekSynth.techAmb}
-          badges={weekSynth.badges}
-          engagement={weekSynth.engagement}
+          labels={dataRows.map(r => r[C.week].replace(/^Week\s+(\d+).*$/, "w.$1"))}
+          iexec={dataRows.map(r => get(r, C.xImpressions))}
+          techAmb={dataRows.map(r => get(r, C.techAmb))}
+          badges={dataRows.map(r => get(r, C.badge))}
+          engagement={dataRows.map(r => get(r, C.engagements))}
         />
       </div>
 
