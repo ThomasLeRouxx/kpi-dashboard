@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { Chart, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } from "chart.js";
+Chart.register(LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
 // ─── API HELPERS ──────────────────────────────────────────────────────────────
 async function fetchKaitoStatus() {
@@ -618,6 +620,32 @@ function parseMarketingCsv(text) {
   return dataRows;
 }
 
+function parseWeekSynth(text) {
+  const allRows = parseFullCsv(text);
+  const parseNum = (s) => s ? parseFloat(String(s).replace(/[\s,]/g, "")) || null : null;
+  // Find header row: col[0] is "week" (case-insensitive) and row contains "iExec Imp."
+  let headerIdx = -1;
+  for (let i = 0; i < allRows.length; i++) {
+    if (allRows[i][0]?.trim().toLowerCase() === "week" && allRows[i].some(c => c.trim() === "iExec Imp.")) {
+      headerIdx = i; break;
+    }
+  }
+  if (headerIdx === -1) return { labels: [], iexec: [], techAmb: [], badges: [], engagement: [] };
+  const header = allRows[headerIdx];
+  const iExecIdx  = header.findIndex(c => c.trim() === "iExec Imp.");
+  const techAmbIdx = header.findIndex(c => c.trim() === "Tech Ambs.");
+  const badgesIdx  = header.findIndex(c => c.trim() === "Badges Holders Imp.");
+  const engIdx     = header.findIndex(c => c.trim() === "Engagement");
+  const dataRows = allRows.slice(headerIdx + 1).filter(r => /^w\.\d+/i.test(r[0] ?? ""));
+  return {
+    labels:     dataRows.map(r => r[0].trim()),
+    iexec:      dataRows.map(r => parseNum(r[iExecIdx])),
+    techAmb:    dataRows.map(r => parseNum(r[techAmbIdx])),
+    badges:     dataRows.map(r => parseNum(r[badgesIdx])),
+    engagement: dataRows.map(r => parseNum(r[engIdx])),
+  };
+}
+
 function MktLineChart({ data, color = "#3B82F6", height = 80, secondaryData, secondaryColor = "#F59E0B", refLine = null, labels = [], formatVal }) {
   const [tip, setTip] = useState(null);
   if (!data || data.length === 0) return null;
@@ -691,11 +719,108 @@ function MktLineChart({ data, color = "#3B82F6", height = 80, secondaryData, sec
   );
 }
 
+function ImpressionsChart({ labels, iexec, techAmb, badges, engagement }) {
+  const canvasRef = useRef(null);
+  const chartRef  = useRef(null);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+    const fmtK = (v) => {
+      if (v == null) return "";
+      if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(0)}M`;
+      if (v >= 1_000) return `${(v / 1_000).toFixed(0)}k`;
+      return String(v);
+    };
+    chartRef.current = new Chart(canvasRef.current.getContext("2d"), {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          { label: "Compte iExec",    data: iexec,      borderColor: "#3B82F6", backgroundColor: "rgba(59,130,246,0.08)",   tension: 0.3, pointRadius: 4, borderWidth: 2,   yAxisID: "y",  spanGaps: false },
+          { label: "Tech Ambassadors", data: techAmb,   borderColor: "#8B5CF6", backgroundColor: "rgba(139,92,246,0.08)",  tension: 0.3, pointRadius: 4, borderWidth: 2,   yAxisID: "y",  spanGaps: false },
+          { label: "Badge Holders",   data: badges,     borderColor: "#F59E0B", backgroundColor: "rgba(245,158,11,0.08)",  tension: 0.3, pointRadius: 4, borderWidth: 2,   yAxisID: "y",  spanGaps: false },
+          { label: "Engagement",      data: engagement, borderColor: "#10B981", backgroundColor: "rgba(16,185,129,0.08)", borderDash: [5, 5], tension: 0.3, pointRadius: 3, borderWidth: 1.5, yAxisID: "y2", spanGaps: false },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          y: {
+            position: "left",
+            grid: { color: "rgba(0,0,0,0.06)" },
+            title: { display: true, text: "Impressions", color: "#7A8299", font: { size: 10, family: "'IBM Plex Mono',monospace" } },
+            ticks: { callback: (v) => v >= 1_000_000 ? `${(v/1_000_000).toFixed(0)}M` : v >= 1_000 ? `${(v/1_000).toFixed(0)}k` : v, font: { size: 10 } },
+          },
+          y2: {
+            position: "right",
+            grid: { display: false },
+            title: { display: true, text: "Engagements", color: "#7A8299", font: { size: 10, family: "'IBM Plex Mono',monospace" } },
+            ticks: { callback: (v) => v, font: { size: 10 } },
+          },
+          x: { ticks: { font: { size: 10, family: "'IBM Plex Mono',monospace" }, color: "#7A8299" }, grid: { display: false } },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const v = ctx.raw;
+                if (v == null) return null;
+                return `${ctx.dataset.label}: ${ctx.dataset.yAxisID === "y" ? fmtK(v) : v}`;
+              },
+            },
+          },
+        },
+      },
+    });
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [labels, iexec, techAmb, badges, engagement]);
+
+  const legendItems = [
+    { label: "Compte iExec",    color: "#3B82F6", data: iexec,      dashed: false },
+    { label: "Tech Ambassadors", color: "#8B5CF6", data: techAmb,   dashed: false },
+    { label: "Badge Holders",   color: "#F59E0B", data: badges,     dashed: false },
+    { label: "Engagement",      color: "#10B981", data: engagement, dashed: true  },
+  ];
+  const lastNonNull = (arr) => { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i]; return null; };
+  const fmtLegend = (v, dashed) => {
+    if (v == null) return "—";
+    if (dashed) return String(Math.round(v));
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `${Math.round(v / 1_000)}k`;
+    return String(v);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 12 }}>
+        {legendItems.map(d => (
+          <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {d.dashed
+              ? <svg width={20} height={10} style={{ flexShrink: 0 }}><line x1={0} y1={5} x2={20} y2={5} stroke={d.color} strokeWidth={1.5} strokeDasharray="5 3"/></svg>
+              : <div style={{ width: 10, height: 10, borderRadius: 2, background: d.color, flexShrink: 0 }}/>}
+            <span style={{ fontSize: 10, fontFamily: "'IBM Plex Mono',monospace", color: "#7A8299" }}>
+              {d.label} <span style={{ color: "#1D1D24" }}>({fmtLegend(lastNonNull(d.data), d.dashed)})</span>
+            </span>
+          </div>
+        ))}
+      </div>
+      <div style={{ height: 280, position: "relative" }}>
+        <canvas ref={canvasRef}/>
+      </div>
+    </div>
+  );
+}
+
 function MarketingDashboard() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
-  const [rows, setRows]       = useState([]);
-  const [msTip, setMsTip]     = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [rows, setRows]         = useState([]);
+  const [msTip, setMsTip]       = useState(null);
+  const [weekSynth, setWeekSynth] = useState({ labels: [], iexec: [], techAmb: [], badges: [], engagement: [] });
 
   async function loadData() {
     setLoading(true);
@@ -703,7 +828,9 @@ function MarketingDashboard() {
     try {
       const r = await fetch(MKT_SHEET_URL);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setRows(parseMarketingCsv(await r.text()));
+      const text = await r.text();
+      setRows(parseMarketingCsv(text));
+      setWeekSynth(parseWeekSynth(text));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -904,6 +1031,18 @@ function MarketingDashboard() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* ── Section impressions par source ── */}
+      <div style={cardStyle}>
+        {secTitle("Impressions par source — évolution hebdomadaire")}
+        <ImpressionsChart
+          labels={weekSynth.labels}
+          iexec={weekSynth.iexec}
+          techAmb={weekSynth.techAmb}
+          badges={weekSynth.badges}
+          engagement={weekSynth.engagement}
+        />
       </div>
 
       {/* ── Section 2 : Engagement Twitter ── */}
