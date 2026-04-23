@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Chart, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } from "chart.js";
-Chart.register(LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
+import Chart from "chart.js/auto";
 
 // ─── API HELPERS ──────────────────────────────────────────────────────────────
 async function fetchKaitoStatus() {
