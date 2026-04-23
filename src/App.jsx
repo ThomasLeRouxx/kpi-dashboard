@@ -1230,17 +1230,7 @@ function SalesDashboard({ data, loading }) {
         </div>
       </div>
 
-      {/* ── Par commercial ── */}
-      <div>
-        <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:14 }}>
-          PERFORMANCE PAR COMMERCIAL
-        </div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14 }}>
-          {byOwner.sort((a,b) => b.total-a.total).map(d => <OwnerCard key={d.owner} d={d} />)}
-        </div>
-      </div>
-
-      {/* ── Top Prospects ── */}
+{/* ── Top Prospects ── */}
       <div>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, flexWrap:"wrap", gap:8 }}>
           <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em" }}>
