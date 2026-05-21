@@ -113,11 +113,14 @@ module.exports = async function handler(req, res) {
         blockers:    toStr(f['Blockers']),
         feedback:    toStr(f['Feedback']),
         nextStep:    toStr(f['Next Step']),
-        majorStage:   toStr(f['Major Stage']),
-        cToken:       toBool(f['cToken']),
-        cVaultV1:     toBool(f['cVault V1']),
-        cVaultV2:     toBool(f['cVault V2']),
-        lastCallDate: toStr(f['Last Call Date'] || f['Last call date'] || f['Derniere date call'] || ''),
+        majorStage:       toStr(f['Major Stage']),
+        cTokenDemo:       toBool(f['Démo cToken']),
+        cTokenFeedback:   toBool(f['Feedback cToken']),
+        cVaultV1Demo:     toBool(f['Démo cVault V1']),
+        cVaultV1Feedback: toBool(f['Feedback cVault V1']),
+        cVaultV2Demo:     toBool(f['Démo cVault V2']),
+        cVaultV2Feedback: toBool(f['Feedback cVault V2']),
+        lastCallDate:     toStr(f['Last Call Date'] || f['Last call date'] || f['Derniere date call'] || ''),
       };
     });
 
@@ -251,24 +254,18 @@ module.exports = async function handler(req, res) {
 
     // ── Product stats ─────────────────────────────────────────────────────────
     const ACTIVE_STAGES_SET = new Set(['Discovery Call','Technical Call','Architecture','Business Call','Agreement Phase','Advanced']);
+    const mkProduct = (demoKey, feedbackKey) => ({
+      demo:        leads.filter(l => l[demoKey]).length,
+      feedback:    leads.filter(l => l[feedbackKey]).length,
+      rate:        total > 0 ? Math.round(leads.filter(l => l[demoKey]).length / total * 100) : 0,
+      activeLeads: leads.filter(l => l[demoKey] && ACTIVE_STAGES_SET.has(l.stage)).length,
+    });
     const productStats = {
-      cToken: {
-        presented: leads.filter(l => l.cToken).length,
-        rate: total > 0 ? Math.round(leads.filter(l => l.cToken).length / total * 100) : 0,
-        activeLeads: leads.filter(l => l.cToken && ACTIVE_STAGES_SET.has(l.stage)).length,
-      },
-      cVaultV1: {
-        presented: leads.filter(l => l.cVaultV1).length,
-        rate: total > 0 ? Math.round(leads.filter(l => l.cVaultV1).length / total * 100) : 0,
-        activeLeads: leads.filter(l => l.cVaultV1 && ACTIVE_STAGES_SET.has(l.stage)).length,
-      },
-      cVaultV2: {
-        presented: leads.filter(l => l.cVaultV2).length,
-        rate: total > 0 ? Math.round(leads.filter(l => l.cVaultV2).length / total * 100) : 0,
-        activeLeads: leads.filter(l => l.cVaultV2 && ACTIVE_STAGES_SET.has(l.stage)).length,
-      },
-      multipleProducts: leads.filter(l => [l.cToken, l.cVaultV1, l.cVaultV2].filter(Boolean).length > 1).length,
-      noProduct: leads.filter(l => !l.cToken && !l.cVaultV1 && !l.cVaultV2).length,
+      cToken:   mkProduct('cTokenDemo',   'cTokenFeedback'),
+      cVaultV1: mkProduct('cVaultV1Demo', 'cVaultV1Feedback'),
+      cVaultV2: mkProduct('cVaultV2Demo', 'cVaultV2Feedback'),
+      multipleProducts: leads.filter(l => [l.cTokenDemo, l.cVaultV1Demo, l.cVaultV2Demo].filter(Boolean).length > 1).length,
+      noProduct:        leads.filter(l => !l.cTokenDemo && !l.cVaultV1Demo && !l.cVaultV2Demo).length,
     };
 
     // ── Call stats ────────────────────────────────────────────────────────────

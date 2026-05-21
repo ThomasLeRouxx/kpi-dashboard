@@ -1243,7 +1243,7 @@ function SalesDashboard({ data, loading }) {
         <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:20 }}>
           PRÉSENTATIONS PRODUITS
         </div>
-        {!productStats || (productStats.cToken.presented + productStats.cVaultV1.presented + productStats.cVaultV2.presented) === 0 ? (
+        {!productStats || (productStats.cToken.demo + productStats.cVaultV1.demo + productStats.cVaultV2.demo) === 0 ? (
           <div style={{ color:"#7A8299", fontSize:12, fontFamily:"'IBM Plex Mono',monospace" }}>
             Données de présentations non encore renseignées
           </div>
@@ -1259,9 +1259,9 @@ function SalesDashboard({ data, loading }) {
                 return (
                   <div key={key} style={{ background:"#f9fafb", border:"0.8px solid #e2e8f0", borderRadius:8, padding:"16px" }}>
                     <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>{label}</div>
-                    <div style={{ fontSize:28, fontWeight:700, color:"#1D1D24", fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{s.presented}</div>
-                    <div style={{ fontSize:10, color:"#7A8299", marginTop:6 }}>{s.rate}% du total</div>
-                    <div style={{ fontSize:10, color:"#10B981", marginTop:4 }}>{s.activeLeads} leads actifs</div>
+                    <div style={{ fontSize:28, fontWeight:700, color:"#1D1D24", fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{s.demo}</div>
+                    <div style={{ fontSize:10, color:"#7A8299", marginTop:4 }}>{s.rate}% du total · {s.activeLeads} leads actifs</div>
+                    <div style={{ fontSize:10, color:"#8B5CF6", marginTop:4 }}>Feedback : {s.feedback}</div>
                   </div>
                 );
               })}
