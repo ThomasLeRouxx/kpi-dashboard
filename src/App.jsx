@@ -1120,6 +1120,34 @@ function MarketingDashboard() {
 }
 
 // ─── SALES DASHBOARD ──────────────────────────────────────────────────────────
+function CallsMonthChart({ data }) {
+  const canvasRef = useRef(null);
+  const chartRef  = useRef(null);
+
+  useEffect(() => {
+    if (!canvasRef.current || !data.length) return;
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+    chartRef.current = new Chart(canvasRef.current.getContext("2d"), {
+      type: "bar",
+      data: {
+        labels: data.map(d => d.month.replace(/^\d{4}-/, "")),
+        datasets: [{ label: "Calls", data: data.map(d => d.count), backgroundColor: "#3B82F6", borderRadius: 4, borderSkipped: false }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.raw} call${ctx.raw > 1 ? "s" : ""}` } } },
+        scales: {
+          x: { ticks: { font: { size: 10, family: "'IBM Plex Mono',monospace" }, color: "#7A8299" }, grid: { display: false } },
+          y: { ticks: { stepSize: 1, font: { size: 10 }, color: "#7A8299" }, grid: { color: "rgba(0,0,0,0.06)" } },
+        },
+      },
+    });
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [data]);
+
+  return <div style={{ height: 180, position: "relative" }}><canvas ref={canvasRef}/></div>;
+}
+
 function SalesDashboard({ data, loading }) {
   if (loading) return (
     <div style={{ textAlign:"center", padding:"80px 0", color:"#7A8299" }}>
@@ -1139,7 +1167,8 @@ function SalesDashboard({ data, loading }) {
 
   const { total, totalReponse, totalMeeting, totalDiscovery, conversionRates,
           funnel, byOwner, byVerticale, bySegment, byUsecase = [], topBlockers, activeProspects,
-          byWeek = [], byMonth = [] } = data;
+          byWeek = [], byMonth = [],
+          majorFunnel = [], productStats = null, callStats = null } = data;
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:24 }}>
@@ -1163,6 +1192,123 @@ function SalesDashboard({ data, loading }) {
         ))}
       </div>
 
+      {/* ── Entonnoir Major Stage ── */}
+      <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
+        <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:20 }}>
+          ENTONNOIR DE CONVERSION — MAJOR STAGE
+        </div>
+        {majorFunnel.length === 0 ? (
+          <div style={{ color:"#7A8299", fontSize:12, fontFamily:"'IBM Plex Mono',monospace" }}>
+            Major Stage non encore renseigné dans Airtable
+          </div>
+        ) : (() => {
+          const mainStages = majorFunnel.filter(s => s.stage !== "Closed Lost");
+          const closedLost = majorFunnel.find(s => s.stage === "Closed Lost");
+          const stageColor = (s) => s === "Closed Lost" ? "#EF4444" : (s === "Advanced" || s === "Closed Won") ? "#10B981" : "#3B82F6";
+          return (
+            <div>
+              <div style={{ display:"flex", alignItems:"flex-start", flexWrap:"wrap", gap:4 }}>
+                {mainStages.map((s, i) => (
+                  <div key={s.stage} style={{ display:"flex", alignItems:"center" }}>
+                    <div style={{ background:`${stageColor(s.stage)}12`, border:`1px solid ${stageColor(s.stage)}44`, borderRadius:8, padding:"14px 16px", minWidth:96, textAlign:"center" }}>
+                      <div style={{ fontSize:10, color:stageColor(s.stage), fontFamily:"'IBM Plex Mono',monospace", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:6 }}>{s.stage}</div>
+                      <div style={{ fontSize:26, fontWeight:700, color:"#1D1D24", fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{s.count}</div>
+                      <div style={{ fontSize:10, color:"#7A8299", marginTop:4 }}>{s.convFromTotal}% du total</div>
+                      {i > 0 && <div style={{ fontSize:10, color:stageColor(s.stage), marginTop:2 }}>{s.convFromPrev}% du préc.</div>}
+                    </div>
+                    {i < mainStages.length - 1 && (
+                      <div style={{ fontSize:16, color:"#d1d8e0", margin:"0 4px", flexShrink:0 }}>→</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {closedLost && (
+                <div style={{ marginTop:12, display:"flex", justifyContent:"flex-end" }}>
+                  <div style={{ background:"rgba(239,68,68,0.06)", border:"1px solid rgba(239,68,68,0.2)", borderRadius:8, padding:"12px 16px", minWidth:96, textAlign:"center" }}>
+                    <div style={{ fontSize:10, color:"#EF4444", fontFamily:"'IBM Plex Mono',monospace", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:6 }}>{closedLost.stage}</div>
+                    <div style={{ fontSize:26, fontWeight:700, color:"#EF4444", fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{closedLost.count}</div>
+                    <div style={{ fontSize:10, color:"#7A8299", marginTop:4 }}>{closedLost.convFromTotal}% du total</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ── Présentations produits ── */}
+      <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
+        <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:20 }}>
+          PRÉSENTATIONS PRODUITS
+        </div>
+        {!productStats || (productStats.cToken.presented + productStats.cVaultV1.presented + productStats.cVaultV2.presented) === 0 ? (
+          <div style={{ color:"#7A8299", fontSize:12, fontFamily:"'IBM Plex Mono',monospace" }}>
+            Données de présentations non encore renseignées
+          </div>
+        ) : (
+          <div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:16 }}>
+              {[
+                { key:"cToken",   label:"cToken" },
+                { key:"cVaultV1", label:"cVault V1" },
+                { key:"cVaultV2", label:"cVault V2" },
+              ].map(({ key, label }) => {
+                const s = productStats[key];
+                return (
+                  <div key={key} style={{ background:"#f9fafb", border:"0.8px solid #e2e8f0", borderRadius:8, padding:"16px" }}>
+                    <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>{label}</div>
+                    <div style={{ fontSize:28, fontWeight:700, color:"#1D1D24", fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{s.presented}</div>
+                    <div style={{ fontSize:10, color:"#7A8299", marginTop:6 }}>{s.rate}% du total</div>
+                    <div style={{ fontSize:10, color:"#10B981", marginTop:4 }}>{s.activeLeads} leads actifs</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ fontSize:11, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace", display:"flex", gap:24, flexWrap:"wrap" }}>
+              <span>{productStats.multipleProducts} leads avec plusieurs présentations</span>
+              <span style={{ color: productStats.noProduct > 0 ? "#F59E0B" : "#7A8299" }}>{productStats.noProduct} leads sans aucune présentation</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Activité calls ── */}
+      <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
+        <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:20 }}>
+          ACTIVITÉ CALLS
+        </div>
+        {!callStats || callStats.total === 0 ? (
+          <div>
+            <div style={{ color:"#7A8299", fontSize:12, fontFamily:"'IBM Plex Mono',monospace", marginBottom:12 }}>
+              Dates de calls non encore renseignées
+            </div>
+            {callStats && callStats.activeWithoutCall > 0 && (
+              <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:"rgba(239,68,68,0.06)", border:"1px solid rgba(239,68,68,0.2)", borderRadius:8, padding:"10px 16px" }}>
+                <span style={{ fontSize:22, fontWeight:700, color:"#EF4444", fontFamily:"'IBM Plex Mono',monospace" }}>{callStats.activeWithoutCall}</span>
+                <span style={{ fontSize:11, color:"#7A8299" }}>leads actifs sans call enregistré</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))", gap:12, marginBottom: callStats.byMonth.length > 0 ? 20 : 0 }}>
+              {[
+                { label:"Calls 7 jours",      value:callStats.last7Days,          color:"#3B82F6" },
+                { label:"Calls 30 jours",     value:callStats.last30Days,         color:"#3B82F6" },
+                { label:"Sans call (actifs)", value:callStats.activeWithoutCall,  color: callStats.activeWithoutCall > 0 ? "#EF4444" : "#10B981" },
+                { label:"Inactifs >60j",      value:callStats.overdue60Days,      color: callStats.overdue60Days > 0 ? "#EF4444" : "#10B981" },
+              ].map(m => (
+                <div key={m.label} style={{ background:"#f9fafb", border:"0.8px solid #e2e8f0", borderRadius:8, padding:"14px 16px" }}>
+                  <div style={{ fontSize:24, fontWeight:700, color:m.color, fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{m.value}</div>
+                  <div style={{ fontSize:10, color:"#7A8299", marginTop:6, fontFamily:"'IBM Plex Mono',monospace", textTransform:"uppercase", letterSpacing:"0.08em" }}>{m.label}</div>
+                </div>
+              ))}
+            </div>
+            {callStats.byMonth.length > 0 && <CallsMonthChart data={callStats.byMonth} />}
+          </div>
+        )}
+      </div>
+
       {/* ── Conversion Flow (avec totalDiscovery) ── */}
       <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
         <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:16 }}>
@@ -1179,7 +1325,7 @@ function SalesDashboard({ data, loading }) {
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:16 }}>
         <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
           <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:20 }}>
-            FUNNEL PAR STAGE
+            DÉTAIL PAR STAGE
           </div>
           <FunnelVisual data={funnel} />
         </div>
@@ -1241,21 +1387,6 @@ function SalesDashboard({ data, loading }) {
         </div>
       </div>
 
-{/* ── Top Prospects ── */}
-      <div>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, flexWrap:"wrap", gap:8 }}>
-          <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em" }}>
-            PROSPECTS ACTIFS — DISCOVERY CALLS & MEETINGS
-          </div>
-          <div style={{ fontSize:11, color:"#FCD15A", fontFamily:"'IBM Plex Mono',monospace", fontWeight:700 }}>
-            {activeProspects.length} en cours
-          </div>
-        </div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:12 }}>
-          {activeProspects.map(p => <ProspectCard key={p.company} p={p} />)}
-        </div>
-      </div>
-
       {/* ── Blockers (liste ordonnée avec barres de progression) ── */}
       {topBlockers.length > 0 && (
         <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"24px" }}>
@@ -1270,7 +1401,6 @@ function SalesDashboard({ data, loading }) {
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             {topBlockers.slice(0, 6).map((b, i) => {
               const maxCount = topBlockers[0]?.count || 1;
-              // Opacité décroissante selon le rang (rouge vif pour le 1er)
               const opacity = 1 - (i / Math.max(topBlockers.length, 1)) * 0.55;
               return (
                 <div key={b.name}>
@@ -1291,6 +1421,21 @@ function SalesDashboard({ data, loading }) {
           </div>
         </div>
       )}
+
+      {/* ── Prospects actifs ── */}
+      <div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, flexWrap:"wrap", gap:8 }}>
+          <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em" }}>
+            PROSPECTS ACTIFS — DISCOVERY CALLS & MEETINGS
+          </div>
+          <div style={{ fontSize:11, color:"#FCD15A", fontFamily:"'IBM Plex Mono',monospace", fontWeight:700 }}>
+            {activeProspects.length} en cours
+          </div>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:12 }}>
+          {activeProspects.map(p => <ProspectCard key={p.company} p={p} />)}
+        </div>
+      </div>
     </div>
   );
 }

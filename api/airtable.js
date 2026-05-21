@@ -113,6 +113,11 @@ module.exports = async function handler(req, res) {
         blockers:    toStr(f['Blockers']),
         feedback:    toStr(f['Feedback']),
         nextStep:    toStr(f['Next Step']),
+        majorStage:   toStr(f['Major Stage']),
+        cToken:       toBool(f['cToken']),
+        cVaultV1:     toBool(f['cVault V1']),
+        cVaultV2:     toBool(f['cVault V2']),
+        lastCallDate: toStr(f['Last Call Date'] || f['Last call date'] || f['Derniere date call'] || ''),
       };
     });
 
@@ -230,13 +235,78 @@ module.exports = async function handler(req, res) {
       .sort((a, b) => a.month.localeCompare(b.month))
       .slice(-12);
 
+    // ── Major Stage funnel ────────────────────────────────────────────────────
+    const majorStageCounts = {};
+    leads.forEach(l => { if (l.majorStage) majorStageCounts[l.majorStage] = (majorStageCounts[l.majorStage] || 0) + 1; });
+    const MAJOR_STAGE_ORDER = ['Identified','Contacted','Active','Advanced','Closed Won','Closed Lost'];
+    const majorFunnel = MAJOR_STAGE_ORDER
+      .filter(ms => majorStageCounts[ms] > 0)
+      .map((ms, i, arr) => {
+        const count = majorStageCounts[ms] || 0;
+        const convFromTotal = total > 0 ? Math.round(count / total * 100) : 0;
+        const prevMs = i > 0 ? arr[i - 1] : null;
+        const prevCount = prevMs ? (majorStageCounts[prevMs] || 0) : total;
+        const convFromPrev = prevCount > 0 ? Math.round(count / prevCount * 100) : 0;
+        return { stage: ms, count, convFromTotal, convFromPrev };
+      });
+
+    // ── Product stats ─────────────────────────────────────────────────────────
+    const ACTIVE_STAGES_SET = new Set(['Discovery Call','Technical Call','Architecture','Business Call','Agreement Phase','Advanced']);
+    const productStats = {
+      cToken: {
+        presented: leads.filter(l => l.cToken).length,
+        rate: total > 0 ? Math.round(leads.filter(l => l.cToken).length / total * 100) : 0,
+        activeLeads: leads.filter(l => l.cToken && ACTIVE_STAGES_SET.has(l.stage)).length,
+      },
+      cVaultV1: {
+        presented: leads.filter(l => l.cVaultV1).length,
+        rate: total > 0 ? Math.round(leads.filter(l => l.cVaultV1).length / total * 100) : 0,
+        activeLeads: leads.filter(l => l.cVaultV1 && ACTIVE_STAGES_SET.has(l.stage)).length,
+      },
+      cVaultV2: {
+        presented: leads.filter(l => l.cVaultV2).length,
+        rate: total > 0 ? Math.round(leads.filter(l => l.cVaultV2).length / total * 100) : 0,
+        activeLeads: leads.filter(l => l.cVaultV2 && ACTIVE_STAGES_SET.has(l.stage)).length,
+      },
+      multipleProducts: leads.filter(l => [l.cToken, l.cVaultV1, l.cVaultV2].filter(Boolean).length > 1).length,
+      noProduct: leads.filter(l => !l.cToken && !l.cVaultV1 && !l.cVaultV2).length,
+    };
+
+    // ── Call stats ────────────────────────────────────────────────────────────
+    const now = new Date();
+    const leadsWithCall = leads.filter(l => l.lastCallDate && l.lastCallDate.trim() !== '');
+    const callStats = {
+      total: leadsWithCall.length,
+      last7Days:  leadsWithCall.filter(l => { const d = new Date(l.lastCallDate); return !isNaN(d) && (now - d) / 86400000 <= 7; }).length,
+      last30Days: leadsWithCall.filter(l => { const d = new Date(l.lastCallDate); return !isNaN(d) && (now - d) / 86400000 <= 30; }).length,
+      overdue60Days: leads.filter(l => {
+        if (!l.lastCallDate) return false;
+        const d = new Date(l.lastCallDate);
+        return !isNaN(d) && (now - d) / 86400000 > 60 && ACTIVE_STAGES_SET.has(l.stage);
+      }).length,
+      activeWithoutCall: leads.filter(l => !l.lastCallDate && ACTIVE_STAGES_SET.has(l.stage)).length,
+      byMonth: (() => {
+        const m = {};
+        leadsWithCall.forEach(l => {
+          const d = new Date(l.lastCallDate);
+          if (isNaN(d)) return;
+          const key = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+          m[key] = (m[key] || 0) + 1;
+        });
+        return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0])).map(([month, count]) => ({ month, count }));
+      })(),
+    };
+
     return res.status(200).json({
       enabled: true, fetchedAt: new Date().toISOString(),
       total, totalReponse, totalMeeting, totalContacted, totalDiscovery,
       conversionRates, funnel, byOwner, byVerticale, bySegment, topBlockers, activeProspects,
-      byWeek,    // ← NOUVEAU
-      byMonth,   // ← NOUVEAU
-      byUsecase, // ← NOUVEAU
+      byWeek,
+      byMonth,
+      byUsecase,
+      majorFunnel,
+      productStats,
+      callStats,
     });
   } catch (err) {
     console.error('Airtable error:', err.message);
