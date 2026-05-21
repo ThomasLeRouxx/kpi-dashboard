@@ -76,7 +76,6 @@ module.exports = async function handler(req, res) {
     do {
       const url = new URL('https://api.airtable.com/v0/' + baseId + '/' + encodeURIComponent(tableId));
       url.searchParams.set('pageSize', '100');
-      url.searchParams.set('view', 'Dashboard view');
       if (offset) url.searchParams.set('offset', offset);
 
       const response = await fetch(url.toString(), {
@@ -92,10 +91,6 @@ module.exports = async function handler(req, res) {
       allRecords = allRecords.concat(data.records);
       offset = data.offset || null;
     } while (offset);
-
-    if (allRecords.length > 0) {
-      console.log('AIRTABLE FIELDS:', Object.keys(allRecords[0].fields || {}));
-    }
 
     const leads = allRecords.map(function(r) {
       const f = r.fields || {};
