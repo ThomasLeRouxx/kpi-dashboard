@@ -92,17 +92,6 @@ module.exports = async function handler(req, res) {
       offset = data.offset || null;
     } while (offset);
 
-    if (allRecords.length > 0) {
-      const f0 = allRecords[0].fields || {};
-      console.log('AIRTABLE FIELDS:', Object.keys(f0));
-      console.log('SAMPLE major/products:', {
-        majorStage: f0['Major Stage'],
-        cToken: f0['cToken'],
-        cVaultV1: f0['cVault V1'],
-        cVaultV2: f0['cVault V2'],
-      });
-    }
-
     const leads = allRecords.map(function(r) {
       const f = r.fields || {};
       return {
@@ -247,19 +236,18 @@ module.exports = async function handler(req, res) {
       .slice(-12);
 
     // ── Major Stage funnel ────────────────────────────────────────────────────
+    // Les valeurs sont préfixées ('0 - Prospect', '1 - Contacted'…) → tri naturel
     const majorStageCounts = {};
     leads.forEach(l => { if (l.majorStage) majorStageCounts[l.majorStage] = (majorStageCounts[l.majorStage] || 0) + 1; });
-    const MAJOR_STAGE_ORDER = ['Identified','Contacted','Active','Advanced','Closed Won','Closed Lost'];
-    const majorFunnel = MAJOR_STAGE_ORDER
-      .filter(ms => majorStageCounts[ms] > 0)
-      .map((ms, i, arr) => {
-        const count = majorStageCounts[ms] || 0;
-        const convFromTotal = total > 0 ? Math.round(count / total * 100) : 0;
-        const prevMs = i > 0 ? arr[i - 1] : null;
-        const prevCount = prevMs ? (majorStageCounts[prevMs] || 0) : total;
-        const convFromPrev = prevCount > 0 ? Math.round(count / prevCount * 100) : 0;
-        return { stage: ms, count, convFromTotal, convFromPrev };
-      });
+    const sortedMajorStages = Object.keys(majorStageCounts).sort();
+    const majorFunnel = sortedMajorStages.map((ms, i, arr) => {
+      const count = majorStageCounts[ms] || 0;
+      const convFromTotal = total > 0 ? Math.round(count / total * 100) : 0;
+      const prevMs = i > 0 ? arr[i - 1] : null;
+      const prevCount = prevMs ? (majorStageCounts[prevMs] || 0) : total;
+      const convFromPrev = prevCount > 0 ? Math.round(count / prevCount * 100) : 0;
+      return { stage: ms, count, convFromTotal, convFromPrev };
+    });
 
     // ── Product stats ─────────────────────────────────────────────────────────
     const ACTIVE_STAGES_SET = new Set(['Discovery Call','Technical Call','Architecture','Business Call','Agreement Phase','Advanced']);

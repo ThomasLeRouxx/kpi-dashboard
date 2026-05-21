@@ -1202,9 +1202,11 @@ function SalesDashboard({ data, loading }) {
             Major Stage non encore renseigné dans Airtable
           </div>
         ) : (() => {
-          const mainStages = majorFunnel.filter(s => s.stage !== "Closed Lost");
-          const closedLost = majorFunnel.find(s => s.stage === "Closed Lost");
-          const stageColor = (s) => s === "Closed Lost" ? "#EF4444" : (s === "Advanced" || s === "Closed Won") ? "#10B981" : "#3B82F6";
+          const isLost = (s) => /lost|perdu/i.test(s);
+          const isWon  = (s) => /won|gagné|advanced/i.test(s);
+          const mainStages = majorFunnel.filter(s => !isLost(s.stage));
+          const closedLost = majorFunnel.find(s => isLost(s.stage));
+          const stageColor = (s) => isLost(s) ? "#EF4444" : isWon(s) ? "#10B981" : "#3B82F6";
           return (
             <div>
               <div style={{ display:"flex", alignItems:"flex-start", flexWrap:"wrap", gap:4 }}>
