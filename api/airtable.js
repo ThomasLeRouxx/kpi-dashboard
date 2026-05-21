@@ -38,6 +38,10 @@ function toBool(v) {
   return v === true || v === 'checked';
 }
 
+function hasVal(v) {
+  return v !== undefined && v !== null && String(v).trim() !== '';
+}
+
 /** Retourne l'étiquette "YYYY-Www" (ISO lun-dim) d'une date */
 function toISOWeek(dateStr) {
   const d = new Date(dateStr);
@@ -92,13 +96,6 @@ module.exports = async function handler(req, res) {
       offset = data.offset || null;
     } while (offset);
 
-    const recWithDemo = allRecords.find(r => Object.keys(r.fields || {}).some(k => k.toLowerCase().includes('demo') || k.toLowerCase().includes('démo') || k.toLowerCase().includes('vault')));
-    if (recWithDemo) {
-      console.log('DEMO RECORD FIELDS:', JSON.stringify(recWithDemo.fields));
-    } else {
-      console.log('NO DEMO RECORD FOUND');
-    }
-
     const leads = allRecords.map(function(r) {
       const f = r.fields || {};
       return {
@@ -121,12 +118,12 @@ module.exports = async function handler(req, res) {
         feedback:    toStr(f['Feedback']),
         nextStep:    toStr(f['Next Step']),
         majorStage:       toStr(f['Major Stage']),
-        cTokenDemo:       toBool(f['Démo cToken']),
-        cTokenFeedback:   toBool(f['Feedback cToken']),
-        cVaultV1Demo:     toBool(f['Démo cVault V1']),
-        cVaultV1Feedback: toBool(f['Feedback cVault V1']),
-        cVaultV2Demo:     toBool(f['Démo cVault V2']),
-        cVaultV2Feedback: toBool(f['Feedback cVault V2']),
+        cTokenDemo:       hasVal(f['Démo cToken']),
+        cTokenFeedback:   hasVal(f['Feedback cToken']),
+        cVaultV1Demo:     hasVal(f['Démo cVault V1']),
+        cVaultV1Feedback: hasVal(f['Feedback cVault V1']),
+        cVaultV2Demo:     hasVal(f['Démo cVault V2']),
+        cVaultV2Feedback: hasVal(f['Feedback cVault V2']),
         lastCallDate:     toStr(f['Last Call Date'] || f['Last call date'] || f['Derniere date call'] || ''),
       };
     });
