@@ -92,6 +92,17 @@ module.exports = async function handler(req, res) {
       offset = data.offset || null;
     } while (offset);
 
+    if (allRecords.length > 0) {
+      const f0 = allRecords[0].fields || {};
+      console.log('AIRTABLE FIELDS:', Object.keys(f0));
+      console.log('SAMPLE major/products:', {
+        majorStage: f0['Major Stage'],
+        cToken: f0['cToken'],
+        cVaultV1: f0['cVault V1'],
+        cVaultV2: f0['cVault V2'],
+      });
+    }
+
     const leads = allRecords.map(function(r) {
       const f = r.fields || {};
       return {
