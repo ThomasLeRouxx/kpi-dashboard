@@ -76,6 +76,7 @@ module.exports = async function handler(req, res) {
     do {
       const url = new URL('https://api.airtable.com/v0/' + baseId + '/' + encodeURIComponent(tableId));
       url.searchParams.set('pageSize', '100');
+      url.searchParams.set('view', 'Dashboard view');
       if (offset) url.searchParams.set('offset', offset);
 
       const response = await fetch(url.toString(), {
