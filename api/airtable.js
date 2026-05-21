@@ -93,6 +93,10 @@ module.exports = async function handler(req, res) {
       offset = data.offset || null;
     } while (offset);
 
+    if (allRecords.length > 0) {
+      console.log('AIRTABLE FIELDS:', Object.keys(allRecords[0].fields || {}));
+    }
+
     const leads = allRecords.map(function(r) {
       const f = r.fields || {};
       return {
