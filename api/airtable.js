@@ -243,17 +243,52 @@ module.exports = async function handler(req, res) {
       .slice(-12);
 
     // ── Major Stage funnel ────────────────────────────────────────────────────
-    // Les valeurs sont préfixées ('0 - Prospect', '1 - Contacted'…) → tri naturel
+    const MAJOR_STAGE_ORDER = ['0 - Prospect', '1 - Discovery', '2 - Tech Fit ananlysis', '3 - Closing'];
+
     const majorStageCounts = {};
-    leads.forEach(l => { if (l.majorStage) majorStageCounts[l.majorStage] = (majorStageCounts[l.majorStage] || 0) + 1; });
-    const sortedMajorStages = Object.keys(majorStageCounts).sort();
-    const majorFunnel = sortedMajorStages.map((ms, i, arr) => {
+    leads.forEach(l => {
+      if (l.majorStage) majorStageCounts[l.majorStage] = (majorStageCounts[l.majorStage] || 0) + 1;
+    });
+
+    const outCount = leads.filter(l => l.majorStage === 'OUT').length;
+    const noStageCount = leads.filter(l => !l.majorStage || l.majorStage.trim() === '').length;
+
+    const majorFunnel = [];
+
+    majorFunnel.push({
+      stage: 'Total Leads',
+      count: total,
+      convFromTotal: 100,
+      convFromPrev: 100,
+      isRoot: true,
+    });
+
+    MAJOR_STAGE_ORDER.forEach((ms, i) => {
       const count = majorStageCounts[ms] || 0;
-      const convFromTotal = total > 0 ? Math.round(count / total * 100) : 0;
-      const prevMs = i > 0 ? arr[i - 1] : null;
-      const prevCount = prevMs ? (majorStageCounts[prevMs] || 0) : total;
-      const convFromPrev = prevCount > 0 ? Math.round(count / prevCount * 100) : 0;
-      return { stage: ms, count, convFromTotal, convFromPrev };
+      const prevCount = i === 0 ? total : (majorStageCounts[MAJOR_STAGE_ORDER[i - 1]] || 0);
+      majorFunnel.push({
+        stage: ms,
+        count,
+        convFromTotal: total > 0 ? Math.round(count / total * 100) : 0,
+        convFromPrev: prevCount > 0 ? Math.round(count / prevCount * 100) : 0,
+        isRoot: false,
+      });
+    });
+
+    majorFunnel.push({
+      stage: 'OUT',
+      count: outCount,
+      convFromTotal: total > 0 ? Math.round(outCount / total * 100) : 0,
+      convFromPrev: null,
+      isOut: true,
+    });
+
+    majorFunnel.push({
+      stage: 'Sans stage',
+      count: noStageCount,
+      convFromTotal: total > 0 ? Math.round(noStageCount / total * 100) : 0,
+      convFromPrev: null,
+      isUnassigned: true,
     });
 
     // ── Product stats ─────────────────────────────────────────────────────────

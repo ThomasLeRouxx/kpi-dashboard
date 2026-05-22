@@ -1119,6 +1119,127 @@ function MarketingDashboard() {
   );
 }
 
+// ─── MAJOR STAGE FUNNEL ───────────────────────────────────────────────────────
+function cleanStageName(stage) {
+  return stage.replace(/^\d+\s*-\s*/, '').trim();
+}
+
+function MajorStageFunnel({ majorFunnel }) {
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 640);
+
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
+  if (!majorFunnel || majorFunnel.length === 0) return (
+    <div style={{ color:"#7A8299", fontSize:12, fontFamily:"'IBM Plex Mono',monospace" }}>
+      Major Stage non encore renseigné dans Airtable
+    </div>
+  );
+
+  const STAGE_COLORS = ['#3B82F6', '#8B5CF6', '#F59E0B', '#10B981'];
+  const rootStage = majorFunnel.find(s => s.isRoot);
+  const pipelineStages = majorFunnel.filter(s => !s.isRoot && !s.isOut && !s.isUnassigned);
+  const outStage = majorFunnel.find(s => s.isOut);
+  const noStage = majorFunnel.find(s => s.isUnassigned);
+
+  const cardBase = {
+    borderRadius: 8,
+    padding: "16px 18px",
+    textAlign: "center",
+    boxSizing: "border-box",
+  };
+
+  return (
+    <div>
+      <div style={{
+        display: "flex",
+        flexDirection: isMobile ? "column" : "row",
+        alignItems: isMobile ? "stretch" : "center",
+        flexWrap: isMobile ? "nowrap" : "wrap",
+        gap: 0,
+      }}>
+        {rootStage && (
+          <div style={{
+            ...cardBase,
+            background: "#f4f6fa",
+            border: "1px solid #e2e8f0",
+            minWidth: isMobile ? undefined : 100,
+            width: isMobile ? "100%" : undefined,
+          }}>
+            <div style={{ fontSize:10, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:8 }}>Total</div>
+            <div style={{ fontSize:28, fontWeight:700, color:"#1D1D24", fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{rootStage.count}</div>
+            <div style={{ fontSize:10, color:"#7A8299", marginTop:4 }}>leads</div>
+          </div>
+        )}
+
+        {pipelineStages.map((s, i) => {
+          const color = STAGE_COLORS[i] || '#94A3B8';
+          const displayName = cleanStageName(s.stage).replace(/ananlysis/i, 'analysis');
+          return (
+            <div key={s.stage} style={{
+              display: "flex",
+              flexDirection: isMobile ? "column" : "row",
+              alignItems: "center",
+              width: isMobile ? "100%" : undefined,
+            }}>
+              <div style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                padding: isMobile ? "6px 0" : "0 6px",
+                flexShrink: 0,
+              }}>
+                <div style={{ fontSize:13, fontWeight:700, color, fontFamily:"'IBM Plex Mono',monospace" }}>{s.convFromPrev}%</div>
+                <div style={{ fontSize: isMobile ? 18 : 20, color, lineHeight:1 }}>{isMobile ? "↓" : "→"}</div>
+              </div>
+              <div style={{
+                ...cardBase,
+                background: `${color}12`,
+                border: `1px solid ${color}44`,
+                minWidth: isMobile ? undefined : 100,
+                width: isMobile ? "100%" : undefined,
+              }}>
+                <div style={{ fontSize:10, color, fontFamily:"'IBM Plex Mono',monospace", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:8 }}>{displayName}</div>
+                <div style={{ fontSize:28, fontWeight:700, color:"#1D1D24", fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{s.count}</div>
+                <div style={{ fontSize:10, color:"#7A8299", marginTop:4 }}>{s.convFromTotal}% du total</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop:16, display:"flex", gap:20, flexWrap:"wrap", fontSize:12, fontFamily:"'IBM Plex Mono',monospace" }}>
+        {outStage && (
+          <span style={{ color: outStage.count > 0 ? "#EF4444" : "#7A8299" }}>
+            OUT : {outStage.count} leads ({outStage.convFromTotal}% du total)
+          </span>
+        )}
+        {noStage && (
+          <span>
+            <span style={{ color: noStage.count > 0 ? "#F59E0B" : "#7A8299" }}>
+              Sans stage : {noStage.count} leads ({noStage.convFromTotal}% du total)
+            </span>
+            {noStage.count > 0 && <span style={{ color:"#F59E0B", fontSize:10 }}> · À qualifier dans Airtable</span>}
+          </span>
+        )}
+      </div>
+
+      {pipelineStages.length >= 4 && rootStage && (
+        <div style={{ marginTop:16, fontSize:12, color:"#7A8299", lineHeight:1.6, borderTop:"0.8px solid #f4f6fa", paddingTop:12 }}>
+          Sur <strong style={{color:"#1D1D24"}}>{rootStage.count}</strong> leads identifiés,{' '}
+          <strong style={{color:"#3B82F6"}}>{pipelineStages[0].count}</strong> ont été qualifiés comme prospects ({pipelineStages[0].convFromTotal}%),{' '}
+          <strong style={{color:"#8B5CF6"}}>{pipelineStages[1].count}</strong> ont atteint la phase Discovery ({pipelineStages[1].convFromPrev}% des prospects),{' '}
+          <strong style={{color:"#F59E0B"}}>{pipelineStages[2].count}</strong> ont passé le Tech Fit ({pipelineStages[2].convFromPrev}%),{' '}
+          et <strong style={{color:"#10B981"}}>{pipelineStages[3].count}</strong> sont en phase de closing ({pipelineStages[3].convFromPrev}%).
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── SALES DASHBOARD ──────────────────────────────────────────────────────────
 function CallsMonthChart({ data }) {
   const canvasRef = useRef(null);
@@ -1197,45 +1318,7 @@ function SalesDashboard({ data, loading }) {
         <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:20 }}>
           ENTONNOIR DE CONVERSION — MAJOR STAGE
         </div>
-        {majorFunnel.length === 0 ? (
-          <div style={{ color:"#7A8299", fontSize:12, fontFamily:"'IBM Plex Mono',monospace" }}>
-            Major Stage non encore renseigné dans Airtable
-          </div>
-        ) : (() => {
-          const isLost = (s) => /lost|perdu/i.test(s);
-          const isWon  = (s) => /won|gagné|advanced/i.test(s);
-          const mainStages = majorFunnel.filter(s => !isLost(s.stage));
-          const closedLost = majorFunnel.find(s => isLost(s.stage));
-          const stageColor = (s) => isLost(s) ? "#EF4444" : isWon(s) ? "#10B981" : "#3B82F6";
-          return (
-            <div>
-              <div style={{ display:"flex", alignItems:"flex-start", flexWrap:"wrap", gap:4 }}>
-                {mainStages.map((s, i) => (
-                  <div key={s.stage} style={{ display:"flex", alignItems:"center" }}>
-                    <div style={{ background:`${stageColor(s.stage)}12`, border:`1px solid ${stageColor(s.stage)}44`, borderRadius:8, padding:"14px 16px", minWidth:96, textAlign:"center" }}>
-                      <div style={{ fontSize:10, color:stageColor(s.stage), fontFamily:"'IBM Plex Mono',monospace", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:6 }}>{s.stage}</div>
-                      <div style={{ fontSize:26, fontWeight:700, color:"#1D1D24", fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{s.count}</div>
-                      <div style={{ fontSize:10, color:"#7A8299", marginTop:4 }}>{s.convFromTotal}% du total</div>
-                      {i > 0 && <div style={{ fontSize:10, color:stageColor(s.stage), marginTop:2 }}>{s.convFromPrev}% du préc.</div>}
-                    </div>
-                    {i < mainStages.length - 1 && (
-                      <div style={{ fontSize:16, color:"#d1d8e0", margin:"0 4px", flexShrink:0 }}>→</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-              {closedLost && (
-                <div style={{ marginTop:12, display:"flex", justifyContent:"flex-end" }}>
-                  <div style={{ background:"rgba(239,68,68,0.06)", border:"1px solid rgba(239,68,68,0.2)", borderRadius:8, padding:"12px 16px", minWidth:96, textAlign:"center" }}>
-                    <div style={{ fontSize:10, color:"#EF4444", fontFamily:"'IBM Plex Mono',monospace", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:6 }}>{closedLost.stage}</div>
-                    <div style={{ fontSize:26, fontWeight:700, color:"#EF4444", fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{closedLost.count}</div>
-                    <div style={{ fontSize:10, color:"#7A8299", marginTop:4 }}>{closedLost.convFromTotal}% du total</div>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
+        <MajorStageFunnel majorFunnel={majorFunnel} />
       </div>
 
       {/* ── Présentations produits ── */}
