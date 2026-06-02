@@ -1009,12 +1009,36 @@ function MarketingDashboard() {
   const smartEngVals = dataRows.map(r => get(r, C.smartEngagement));
 
   // ── Section 3 — Smart Followers ──────────────────────────────────────────────
-  const sfVals = dataRows.map(r => get(r, C.smartFollowers));
+  const sfVals     = dataRows.map(r => get(r, C.smartFollowers));
+  const sfValid    = sfVals.filter(v => v != null);
+  const lastSF     = sfValid.at(-1) ?? null;
+  const prevSF     = sfValid.at(-2) ?? null;
+  const sfDelta    = lastSF != null && prevSF != null ? lastSF - prevSF : null;
 
   // ── Section 4 — Net Sentiment (col 6, valeur "61%" → 0.61 après parsing) ─────
-  const sentVals = dataRows.map(r => get(r, C.netSentiment));
-  const lastSent = sentVals.filter(v => v != null).at(-1) ?? 0;
+  const sentVals  = dataRows.map(r => get(r, C.netSentiment));
+  const lastSent  = sentVals.filter(v => v != null).at(-1) ?? 0;
+  const prevSent  = sentVals.filter(v => v != null).at(-2) ?? null;
+  const sentDelta = prevSent != null ? lastSent - prevSent : null;
   const sentColor = lastSent >= 0.7 ? "#10B981" : lastSent >= 0.5 ? "#F59E0B" : "#EF4444";
+
+  // ── Section 2 — Engagement Twitter (stats résumées) ──────────────────────────
+  const engValid    = engVals.filter(v => v != null);
+  const lastEng     = engValid.at(-1) ?? null;
+  const prevEng     = engValid.at(-2) ?? null;
+  const engDelta    = lastEng != null && prevEng != null ? lastEng - prevEng : null;
+  const engDeltaPct = engDelta != null && prevEng > 0 ? (engDelta / prevEng) * 100 : null;
+  const smartValid  = smartEngVals.filter(v => v != null);
+  const lastSmart   = smartValid.at(-1) ?? null;
+
+  // ── NOX Ranking ───────────────────────────────────────────────────────────────
+  const noxFiltered  = (noxHistory ?? []).filter(d => d.week >= "2026-W18");
+  const noxRankVals  = noxFiltered.map(d => {
+    const sorted = ["RLC","ZAMA","INCO","FHENIX"].sort((a, b) => (d[b] ?? 0) - (d[a] ?? 0));
+    return sorted.indexOf("RLC") + 1;
+  });
+  const noxRankPct  = noxRankVals.length ? noxRankVals.filter(v => v === 1).length / noxRankVals.length * 100 : 0;
+  const lastNoxRank = noxRankVals.at(-1) ?? null;
 
   // ── Section 5 — Impressions table (8 dernières semaines) ──────────────────────
   const last8 = dataRows.slice(-8);
@@ -1033,7 +1057,7 @@ function MarketingDashboard() {
       </div>
 
       {/* ── Section 1 : KPIs S1 2026 ── */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16 }}>
 
         {/* Mindshare Privacy Infra */}
         <div style={cardStyle}>
@@ -1090,17 +1114,61 @@ function MarketingDashboard() {
             {teePct.toFixed(0)}%
           </div>
           <div style={{ fontSize:11, color:"#7A8299", margin:"4px 0 14px", fontFamily:"'IBM Plex Mono',monospace" }}>
-            Target 50% semaines en #1
+            Target 50% semaines en #1 · vs ROSE, PHA, SCRT
           </div>
-          <svg width="100%" viewBox="0 0 200 48" style={{ overflow:"visible" }}>
-            <line x1={0} y1={24} x2={200} y2={24} stroke="#f0f0f0" strokeWidth={1}/>
+          <svg width="100%" viewBox="0 0 200 56" style={{ overflow:"visible" }}>
+            {[1,2,3,4].map(rank => (
+              <line key={rank} x1={0} y1={((rank-1)/3)*40+4} x2={200} y2={((rank-1)/3)*40+4} stroke="#f4f6fa" strokeWidth={0.8}/>
+            ))}
             {teeVals.map((v, i) => {
               if (v == null) return null;
               const cx = (i / Math.max(teeVals.length - 1, 1)) * 200;
               const cy = ((v - 1) / 3) * 40 + 4;
               return <circle key={i} cx={cx} cy={cy} r={4} fill={v === 1 ? "#10B981" : v === 2 ? "#FCD15A" : "#EF4444"}/>;
             })}
+            {["#1","#2","#3","#4"].map((lbl, i) => (
+              <text key={i} x={-4} y={(i/3)*40+8} textAnchor="end" fontSize={7} fill="#d1d8e0" fontFamily="'IBM Plex Mono',monospace">{lbl}</text>
+            ))}
           </svg>
+        </div>
+
+        {/* NOX Ranking */}
+        <div style={cardStyle}>
+          {secTitle("NOX Ranking · depuis W18 2026")}
+          {noxLoading ? (
+            <div style={{ fontSize:11, color:"#b0bec8", fontFamily:"'IBM Plex Mono',monospace", paddingTop:8 }}>Chargement…</div>
+          ) : noxRankVals.length === 0 ? (
+            <div style={{ fontSize:11, color:"#b0bec8", fontFamily:"'IBM Plex Mono',monospace", paddingTop:8 }}>Aucune donnée</div>
+          ) : (
+            <>
+              <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+                <div style={{ fontSize:28, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", color: noxRankPct >= 50 ? "#10B981" : "#EF4444" }}>
+                  {noxRankPct.toFixed(0)}%
+                </div>
+                {lastNoxRank && (
+                  <div style={{ fontSize:13, fontWeight:600, fontFamily:"'IBM Plex Mono',monospace", color: lastNoxRank === 1 ? "#10B981" : lastNoxRank === 2 ? "#FCD15A" : "#EF4444" }}>
+                    #{lastNoxRank} ce week
+                  </div>
+                )}
+              </div>
+              <div style={{ fontSize:11, color:"#7A8299", margin:"4px 0 14px", fontFamily:"'IBM Plex Mono',monospace" }}>
+                Semaines en #1 · vs ZAMA, Inco, Fhenix
+              </div>
+              <svg width="100%" viewBox="0 0 200 56" style={{ overflow:"visible" }}>
+                {[1,2,3,4].map(rank => (
+                  <line key={rank} x1={0} y1={((rank-1)/3)*40+4} x2={200} y2={((rank-1)/3)*40+4} stroke="#f4f6fa" strokeWidth={0.8}/>
+                ))}
+                {noxRankVals.map((v, i) => {
+                  const cx = (i / Math.max(noxRankVals.length - 1, 1)) * 200;
+                  const cy = ((v - 1) / 3) * 40 + 4;
+                  return <circle key={i} cx={cx} cy={cy} r={4} fill={v === 1 ? "#10B981" : v === 2 ? "#FCD15A" : "#EF4444"}/>;
+                })}
+                {["#1","#2","#3","#4"].map((lbl, i) => (
+                  <text key={i} x={-4} y={(i/3)*40+8} textAnchor="end" fontSize={7} fill="#d1d8e0" fontFamily="'IBM Plex Mono',monospace">{lbl}</text>
+                ))}
+              </svg>
+            </>
+          )}
         </div>
 
         {/* Total Impressions */}
@@ -1152,20 +1220,43 @@ function MarketingDashboard() {
         />
       </div>
 
-      {/* ── Section 2 : Engagement Twitter ── */}
+      {/* ── Sections 2/3/4 : Engagement · Smart Followers · Net Sentiment ── */}
       <div style={cardStyle}>
-        {secTitle("Engagement Twitter · Total vs Smart")}
-        <div style={{ display:"flex", gap:20, marginBottom:12 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <div style={{ width:20, height:3, background:"#3B82F6", borderRadius:2 }}/>
-            <span style={{ fontSize:10, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>Total Engagements</span>
+        {secTitle("Engagement Twitter")}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:24, marginBottom:16 }}>
+          {/* Stat Total */}
+          <div>
+            <div style={{ fontSize:9, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", marginBottom:4, textTransform:"uppercase", letterSpacing:"0.08em" }}>Total · dernière semaine</div>
+            <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+              <span style={{ fontSize:22, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", color:"#3B82F6" }}>
+                {lastEng != null ? (lastEng >= 1000 ? `${(lastEng/1000).toFixed(1)}k` : String(lastEng)) : "—"}
+              </span>
+              {engDeltaPct != null && (
+                <span style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color: engDeltaPct >= 0 ? "#10B981" : "#EF4444", fontWeight:600 }}>
+                  {engDeltaPct >= 0 ? "▲" : "▼"} {Math.abs(engDeltaPct).toFixed(0)}%
+                </span>
+              )}
+            </div>
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <div style={{ width:20, height:2, borderTop:"2px dashed #F59E0B" }}/>
-            <span style={{ fontSize:10, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>Smart Engagement</span>
+          {/* Stat Smart */}
+          <div>
+            <div style={{ fontSize:9, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", marginBottom:4, textTransform:"uppercase", letterSpacing:"0.08em" }}>Smart Engagement</div>
+            <div style={{ fontSize:22, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", color:"#F59E0B" }}>
+              {lastSmart != null ? (lastSmart >= 1000 ? `${(lastSmart/1000).toFixed(1)}k` : String(lastSmart)) : "—"}
+            </div>
           </div>
         </div>
-        <MktLineChart data={engVals} color="#3B82F6" secondaryData={smartEngVals} secondaryColor="#F59E0B" height={80}
+        <div style={{ display:"flex", gap:20, marginBottom:10 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <div style={{ width:16, height:3, background:"#3B82F6", borderRadius:2 }}/>
+            <span style={{ fontSize:9, fontFamily:"'IBM Plex Mono',monospace", color:"#94A3B8" }}>Total</span>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <div style={{ width:16, height:0, borderTop:"2px dashed #F59E0B" }}/>
+            <span style={{ fontSize:9, fontFamily:"'IBM Plex Mono',monospace", color:"#94A3B8" }}>Smart</span>
+          </div>
+        </div>
+        <MktLineChart data={engVals} color="#3B82F6" secondaryData={smartEngVals} secondaryColor="#F59E0B" height={72}
           labels={weekLabels} formatVal={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)}/>
         <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
           {xAxisLabels(weekLabels).map((l, i) => (
@@ -1174,33 +1265,54 @@ function MarketingDashboard() {
         </div>
       </div>
 
-      {/* ── Section 3 : Smart Followers ── */}
-      <div style={cardStyle}>
-        {secTitle("Smart Followers · Évolution")}
-        <MktLineChart data={sfVals} color="#8B5CF6" height={80} refLine={348}
-          labels={weekLabels} formatVal={v => String(Math.round(v))}/>
-        <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
-          {xAxisLabels(weekLabels).map((l, i) => (
-            <span key={i} style={{ fontSize:8, fontFamily:"'IBM Plex Mono',monospace", color:"#b0bec8" }}>{l}</span>
-          ))}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+        {/* ── Smart Followers ── */}
+        <div style={cardStyle}>
+          {secTitle("Smart Followers")}
+          <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:4 }}>
+            <span style={{ fontSize:28, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", color:"#8B5CF6" }}>
+              {lastSF != null ? Math.round(lastSF).toLocaleString("fr-FR") : "—"}
+            </span>
+            {sfDelta != null && (
+              <span style={{ fontSize:12, fontFamily:"'IBM Plex Mono',monospace", color: sfDelta >= 0 ? "#10B981" : "#EF4444", fontWeight:600 }}>
+                {sfDelta >= 0 ? "▲" : "▼"} {Math.abs(sfDelta).toFixed(0)} /sem
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize:10, color:"#94A3B8", marginBottom:14, fontFamily:"'IBM Plex Mono',monospace" }}>
+            Évolution hebdomadaire · @iEx_ec
+          </div>
+          <MktLineChart data={sfVals} color="#8B5CF6" height={72} labels={weekLabels} formatVal={v => String(Math.round(v))}/>
+          <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
+            {xAxisLabels(weekLabels).map((l, i) => (
+              <span key={i} style={{ fontSize:8, fontFamily:"'IBM Plex Mono',monospace", color:"#b0bec8" }}>{l}</span>
+            ))}
+          </div>
         </div>
-        <div style={{ fontSize:10, color:"#94A3B8", marginTop:4, fontFamily:"'IBM Plex Mono',monospace" }}>
-          Ligne référence : 348 (valeur actuelle)
-        </div>
-      </div>
 
-      {/* ── Section 4 : Net Sentiment ── */}
-      <div style={cardStyle}>
-        {secTitle("Net Sentiment · %")}
-        <MktLineChart data={sentVals} color={sentColor} height={80} refLine={0.7}
-          labels={weekLabels} formatVal={v => `${(v*100).toFixed(0)}%`}/>
-        <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
-          {xAxisLabels(weekLabels).map((l, i) => (
-            <span key={i} style={{ fontSize:8, fontFamily:"'IBM Plex Mono',monospace", color:"#b0bec8" }}>{l}</span>
-          ))}
-        </div>
-        <div style={{ fontSize:10, color:"#94A3B8", marginTop:4, fontFamily:"'IBM Plex Mono',monospace" }}>
-          Ligne référence : 70% (seuil positif)
+        {/* ── Net Sentiment ── */}
+        <div style={cardStyle}>
+          {secTitle("Net Sentiment")}
+          <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:4 }}>
+            <span style={{ fontSize:28, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", color: sentColor }}>
+              {lastSent ? `${(lastSent * 100).toFixed(0)}%` : "—"}
+            </span>
+            {sentDelta != null && (
+              <span style={{ fontSize:12, fontFamily:"'IBM Plex Mono',monospace", color: sentDelta >= 0 ? "#10B981" : "#EF4444", fontWeight:600 }}>
+                {sentDelta >= 0 ? "▲" : "▼"} {(Math.abs(sentDelta) * 100).toFixed(1)}pp
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize:10, color:"#94A3B8", marginBottom:14, fontFamily:"'IBM Plex Mono',monospace" }}>
+            Seuil positif : 70% · {lastSent >= 0.7 ? "✓ atteint" : "✗ en dessous"}
+          </div>
+          <MktLineChart data={sentVals} color={sentColor} height={72} refLine={0.7}
+            labels={weekLabels} formatVal={v => `${(v*100).toFixed(0)}%`}/>
+          <div style={{ display:"flex", justifyContent:"space-between", marginTop:6 }}>
+            {xAxisLabels(weekLabels).map((l, i) => (
+              <span key={i} style={{ fontSize:8, fontFamily:"'IBM Plex Mono',monospace", color:"#b0bec8" }}>{l}</span>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1212,7 +1324,7 @@ function MarketingDashboard() {
               Protocol Nox — Mindshare relatif · Évolution hebdomadaire
             </div>
             <div style={{ fontSize:11, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>
-              iExec vs ZAMA · Zaiffer · Inco Network · Fhenix · TEN Protocol
+              iExec vs ZAMA · Inco Network · Fhenix
             </div>
           </div>
           <button onClick={loadNoxData} style={{ fontSize:11, padding:"5px 14px", borderRadius:6, border:"0.8px solid #d1d8e0", background:"#fff", cursor:"pointer", fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>
