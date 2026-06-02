@@ -13,7 +13,7 @@ export default function middleware(request) {
       const decoded = atob(encoded)
       const colonIndex = decoded.indexOf(':')
       const providedPassword = decoded.slice(colonIndex + 1)
-      if (providedPassword === password) return new Response(null, { status: 200 })
+      if (providedPassword === password) return
     }
   }
 
