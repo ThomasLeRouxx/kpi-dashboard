@@ -787,11 +787,126 @@ function ImpressionsChart({ labels, iexec, techAmb, badges, engagement, hideTech
   );
 }
 
+// ─── NOX MINDSHARE CHART ──────────────────────────────────────────────────────
+const NOX_COLORS = {
+  RLC:     "#FCD15A",
+  ZAMA:    "#3B82F6",
+  ZAIFFER: "#10B981",
+  INCO:    "#8B5CF6",
+  FHENIX:  "#EF4444",
+  TEN:     "#F97316",
+};
+const NOX_DISPLAY = {
+  RLC:"iExec (RLC)", ZAMA:"ZAMA", ZAIFFER:"Zaiffer", INCO:"Inco Network", FHENIX:"Fhenix", TEN:"TEN Protocol"
+};
+
+function NoxMindshareChart({ history }) {
+  const [tip, setTip] = useState(null);
+  if (!history || history.length === 0) return (
+    <div style={{ color:"#7A8299", fontSize:12, fontFamily:"'IBM Plex Mono',monospace", padding:"32px", textAlign:"center" }}>
+      Aucune donnée disponible — le script hebdomadaire alimentera ce graphique chaque lundi.
+    </div>
+  );
+
+  const tokens = ["RLC","ZAMA","ZAIFFER","INCO","FHENIX","TEN"];
+  const W = 560; const H = 160;
+  const PAD_L = 32; const PAD_R = 8; const PAD_T = 8; const PAD_B = 4;
+  const chartW = W - PAD_L - PAD_R;
+  const chartH = H - PAD_T - PAD_B;
+
+  const allVals = history.flatMap(d => tokens.map(t => d[t] ?? 0));
+  const maxV = Math.max(...allVals, 1);
+  const xOf = i => PAD_L + (i / Math.max(history.length - 1, 1)) * chartW;
+  const yOf = v => PAD_T + chartH - (v / maxV) * chartH;
+  const zoneW = chartW / Math.max(history.length, 1);
+
+  function makePath(token) {
+    return history.map((d, i) =>
+      `${i === 0 ? "M" : "L"} ${xOf(i).toFixed(1)} ${yOf(d[token] ?? 0).toFixed(1)}`
+    ).join(" ");
+  }
+
+  const step = Math.max(1, Math.ceil(history.length / 6));
+  const xLabels = history.map((d, i) => i % step === 0 ? { i, label: d.week.replace(/^\d{4}-/, "") } : null).filter(Boolean);
+
+  return (
+    <div>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:"10px 20px", marginBottom:14 }}>
+        {tokens.map(t => (
+          <div key={t} style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <div style={{ width:20, height:3, background:NOX_COLORS[t], borderRadius:2 }}/>
+            <span style={{ fontSize:10, fontFamily:"'IBM Plex Mono',monospace", color: t === "RLC" ? "#1D1D24" : "#7A8299", fontWeight: t === "RLC" ? 700 : 400 }}>
+              {NOX_DISPLAY[t]}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <svg width="100%" viewBox={`0 0 ${W} ${H + 20}`} style={{ overflow:"visible" }}
+        onMouseLeave={() => setTip(null)}>
+        {[0.25, 0.5, 0.75, 1].map(f => {
+          const y = PAD_T + chartH - f * chartH;
+          return (
+            <g key={f}>
+              <line x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke="#f0f0f0" strokeWidth={0.5}/>
+              <text x={PAD_L - 4} y={y + 3} textAnchor="end" fontSize={8} fill="#b0bec8" fontFamily="'IBM Plex Mono',monospace">
+                {(maxV * f).toFixed(0)}%
+              </text>
+            </g>
+          );
+        })}
+
+        {[...tokens].reverse().map(t => (
+          <path key={t} d={makePath(t)} fill="none" stroke={NOX_COLORS[t]}
+            strokeWidth={t === "RLC" ? 2.5 : 1.5} strokeLinejoin="round" opacity={t === "RLC" ? 1 : 0.75}/>
+        ))}
+
+        {history.map((d, i) => (
+          <rect key={i} x={xOf(i) - zoneW / 2} y={PAD_T} width={zoneW} height={chartH}
+            fill="transparent" style={{ cursor:"crosshair" }}
+            onMouseEnter={() => setTip({ i, x: xOf(i) })}/>
+        ))}
+
+        {xLabels.map(({ i, label }) => (
+          <text key={i} x={xOf(i)} y={H + 16} textAnchor="middle"
+            fontSize={8} fill="#b0bec8" fontFamily="'IBM Plex Mono',monospace">{label}</text>
+        ))}
+
+        {tip != null && (() => {
+          const d = history[tip.i];
+          const sorted = [...tokens].sort((a, b) => (d[b] ?? 0) - (d[a] ?? 0));
+          const bw = 140; const bh = sorted.length * 14 + 22;
+          const tx = Math.min(Math.max(tip.x, bw / 2 + PAD_L), W - bw / 2 - PAD_R);
+          const ty = Math.max(PAD_T + 4, yOf(d.RLC ?? 0) - bh - 6);
+          return (
+            <g pointerEvents="none">
+              <line x1={tip.x} y1={PAD_T} x2={tip.x} y2={PAD_T + chartH} stroke="#d1d8e0" strokeWidth={1} strokeDasharray="3 2"/>
+              <rect x={tx - bw / 2} y={ty} width={bw} height={bh} rx={4} fill="#1D1D24" opacity={0.95}/>
+              <text x={tx} y={ty + 13} textAnchor="middle" fontSize={9} fill="#FCD15A" fontFamily="'IBM Plex Mono',monospace" fontWeight="bold">{d.week}</text>
+              {sorted.map((t, li) => (
+                <g key={t}>
+                  <rect x={tx - bw/2 + 8} y={ty + 19 + li*14} width={8} height={3} rx={1} fill={NOX_COLORS[t]}/>
+                  <text x={tx - bw/2 + 22} y={ty + 29 + li*14} fontSize={9}
+                    fill={t === "RLC" ? "#FCD15A" : "#94A3B8"} fontFamily="'IBM Plex Mono',monospace">
+                    {NOX_DISPLAY[t]}: {(d[t] ?? 0).toFixed(1)}%
+                  </text>
+                </g>
+              ))}
+            </g>
+          );
+        })()}
+      </svg>
+    </div>
+  );
+}
+
 function MarketingDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
   const [rows, setRows]       = useState([]);
   const [msTip, setMsTip]     = useState(null);
+  const [noxHistory, setNoxHistory] = useState(null);
+  const [noxLoading, setNoxLoading] = useState(true);
 
   async function loadData() {
     setLoading(true);
@@ -807,7 +922,19 @@ function MarketingDashboard() {
     }
   }
 
-  useEffect(() => { loadData(); }, []);
+  async function loadNoxData() {
+    setNoxLoading(true);
+    try {
+      const r = await fetch("/api/kaito?type=nox_sheet");
+      if (r.ok) {
+        const data = await r.json();
+        setNoxHistory(data.history ?? []);
+      }
+    } catch (_) { /* silencieux */ }
+    finally { setNoxLoading(false); }
+  }
+
+  useEffect(() => { loadData(); loadNoxData(); }, []);
 
   if (loading) return (
     <div style={{ textAlign:"center", padding:"80px 0", color:"#7A8299" }}>
@@ -1077,6 +1204,27 @@ function MarketingDashboard() {
         <div style={{ fontSize:10, color:"#94A3B8", marginTop:4, fontFamily:"'IBM Plex Mono',monospace" }}>
           Ligne référence : 70% (seuil positif)
         </div>
+      </div>
+
+      {/* ── Section Nox : Mindshare Protocol Nox ── */}
+      <div style={{ background:"#fff", border:"0.8px solid #d1d8e0", borderRadius:10, padding:"20px 24px" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14 }}>
+          <div>
+            <div style={{ fontSize:10, fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:4 }}>
+              Protocol Nox — Mindshare relatif · Évolution hebdomadaire
+            </div>
+            <div style={{ fontSize:11, color:"#7A8299", fontFamily:"'IBM Plex Mono',monospace" }}>
+              iExec vs ZAMA · Zaiffer · Inco Network · Fhenix · TEN Protocol
+            </div>
+          </div>
+          <button onClick={loadNoxData} style={{ fontSize:11, padding:"5px 14px", borderRadius:6, border:"0.8px solid #d1d8e0", background:"#fff", cursor:"pointer", fontFamily:"'IBM Plex Mono',monospace", color:"#7A8299" }}>
+            Rafraîchir
+          </button>
+        </div>
+        {noxLoading
+          ? <div style={{ textAlign:"center", padding:"32px 0", color:"#7A8299", fontSize:12, fontFamily:"'IBM Plex Mono',monospace" }}>Chargement…</div>
+          : <NoxMindshareChart history={noxHistory} />
+        }
       </div>
 
       {/* ── Section 5 : Impressions table ── */}

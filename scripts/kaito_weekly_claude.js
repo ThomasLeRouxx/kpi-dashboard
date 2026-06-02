@@ -11,6 +11,7 @@
 const SHEET_ID      = "1Mp8SVYlWw-P6z0ty_JuBEhZtpzqUzMYtBuO9z0knZ4I";
 const HIST_TAB      = "Historique";
 const MARKETING_TAB = "Marketing";
+const NOX_TAB       = "Nox_Mindshare";
 
 const KPI_NAMES = {
   "9":  "Maintain 2.61% privacy infra mindshare",
@@ -19,6 +20,8 @@ const KPI_NAMES = {
 
 const PRIVACY_TOKENS = ["ZAMA","AZTEC","ARCIUM","MIDEN","ALEO","RAIL","RLC","ROSE","PHA","SCRT","INCO"];
 const TEE_TOKENS     = ["RLC","ROSE","PHA","SCRT"];
+// ⚠️  Identifiants Kaito à vérifier pour ZAIFFER, FHENIX, TEN si retours à 0
+const NOX_TOKENS     = ["RLC","ZAMA","ZAIFFER","INCO","FHENIX","TEN"];
 
 // ── Calcul semaine W-2 ────────────────────────────────────────────────────────
 function getWeekRange() {
@@ -214,6 +217,27 @@ async function marketingWeekExists(token, week) {
   return (data.values || []).some(row => row[0] === week);
 }
 
+// ── Helpers Google Sheets — onglet Nox_Mindshare ─────────────────────────────
+async function noxWeekExists(token, week) {
+  const range = encodeURIComponent(`${NOX_TAB}!A:A`);
+  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`, {
+    headers: { "Authorization": `Bearer ${token}` },
+  });
+  const data = await r.json();
+  return (data.values || []).some(row => row[0] === week);
+}
+
+async function appendNoxRow(token, row) {
+  const range = encodeURIComponent(`${NOX_TAB}!A:H`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ values: [row] }),
+  });
+  return r.json();
+}
+
 async function appendMarketingRow(token, row) {
   const range = encodeURIComponent(`${MARKETING_TAB}!A:J`);
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
@@ -318,6 +342,42 @@ async function main() {
       console.log(`  ✅ Marketing écrit (SF: ${smartFollowers ?? "null"}, ΔSF: ${sfChange > 0 ? "+" : ""}${sfChange})`);
     } catch (e) {
       console.error(`  ❌ Échec écriture Marketing: ${e.message}`);
+    }
+  }
+
+  // ── Étape 6 : Protocol Nox Mindshare ─────────────────────────────────────────
+  console.log(`🔄 Fetching Protocol Nox mindshare (${NOX_TOKENS.length} tokens)...`);
+  // Réutilise les valeurs déjà fetchées pour RLC et INCO si disponibles
+  const noxMindshares = {};
+  for (const t of NOX_TOKENS) {
+    noxMindshares[t] = mindshareMap[t] ?? (await fetchMindshare(t, start, end));
+  }
+  const noxTotal = Object.values(noxMindshares).reduce((s, v) => s + v, 0);
+  const noxPcts  = {};
+  for (const t of NOX_TOKENS) {
+    noxPcts[t] = noxTotal > 0 ? parseFloat(((noxMindshares[t] / noxTotal) * 100).toFixed(4)) : 0;
+  }
+  console.log(`  ✅ Nox Mindshare (relatif): ${NOX_TOKENS.map(t => `${t}:${noxPcts[t].toFixed(1)}%`).join(" | ")}`);
+
+  const noxExists = await noxWeekExists(gToken, label);
+  if (noxExists) {
+    console.log(`  ℹ️  Nox_Mindshare déjà présent pour ${label} — aucune écriture`);
+  } else {
+    const noxRow = [
+      label,
+      noxPcts.RLC     ?? 0,
+      noxPcts.ZAMA    ?? 0,
+      noxPcts.ZAIFFER ?? 0,
+      noxPcts.INCO    ?? 0,
+      noxPcts.FHENIX  ?? 0,
+      noxPcts.TEN     ?? 0,
+      new Date().toISOString(),
+    ];
+    try {
+      await appendNoxRow(gToken, noxRow);
+      console.log(`  ✅ Nox_Mindshare écrit pour ${label} (RLC: ${noxPcts.RLC.toFixed(1)}%)`);
+    } catch (e) {
+      console.error(`  ❌ Échec écriture Nox_Mindshare: ${e.message}`);
     }
   }
 

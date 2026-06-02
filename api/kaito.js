@@ -29,6 +29,12 @@ const PRIVACY_TOKENS = ["ZAMA","AZTEC","ARCIUM","MIDEN","ALEO","RAIL","RLC","ROS
 // Compétiteurs TEE — KPI 10 (SCRT déjà présent)
 const TEE_TOKENS = ["RLC","ROSE","PHA","SCRT"];
 
+// Référentiel Protocol Nox — iExec vs concurrents directs FHE/TEE
+// ⚠️  Identifiants Kaito — à ajuster si l'API retourne 0 pour certains tokens
+const NOX_TOKENS  = ["RLC","ZAMA","ZAIFFER","INCO","FHENIX","TEN"];
+const NOX_LABELS  = { RLC:"iExec (RLC)", ZAMA:"ZAMA", ZAIFFER:"Zaiffer", INCO:"Inco Network", FHENIX:"Fhenix", TEN:"TEN Protocol" };
+const NOX_TAB     = "Nox_Mindshare";
+
 // Noms des KPIs dans Sheets (colonne "Nom du KPI")
 const KPI_NAMES = {
   "9":  "Maintain 2.61% privacy infra mindshare",
@@ -197,6 +203,59 @@ async function appendToSheets(accessToken, rows) {
     body: JSON.stringify({ values: rows }),
   });
   return res.json();
+}
+
+// ─── HELPERS GOOGLE SHEETS — NOX_MINDSHARE ───────────────────────────────────
+async function readNoxSheet(accessToken) {
+  const range = encodeURIComponent(`${NOX_TAB}!A:H`);
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`,
+    { headers: { "Authorization": `Bearer ${accessToken}` } }
+  );
+  const data = await res.json();
+  return (data.values || []).slice(1); // ignorer header
+}
+
+async function noxWeekExists(accessToken, weekLabel) {
+  const range = encodeURIComponent(`${NOX_TAB}!A:A`);
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}`,
+    { headers: { "Authorization": `Bearer ${accessToken}` } }
+  );
+  const data = await res.json();
+  return (data.values || []).some(r => r[0] === weekLabel);
+}
+
+async function appendNoxRow(accessToken, row) {
+  const range = encodeURIComponent(`${NOX_TAB}!A:H`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ values: [row] }),
+  });
+  return res.json();
+}
+
+// Convertit une date ISO en label semaine ISO (ex : "2025-08-25" → "2025-W35")
+function dateToWeekLabel(dateStr) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  const day = d.getUTCDay() || 7;
+  const thu = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 4 - day));
+  const yearStart = new Date(Date.UTC(thu.getUTCFullYear(), 0, 1));
+  const wn = Math.ceil(((thu - yearStart) / 86400000 + 1) / 7);
+  return `${thu.getUTCFullYear()}-W${String(wn).padStart(2, "0")}`;
+}
+
+// Retourne le lundi et dimanche de la semaine ISO d'une date donnée
+function weekBoundsFromDate(dateStr) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  const day = d.getUTCDay() || 7;
+  const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - (day - 1)));
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  const fmt = x => x.toISOString().slice(0, 10);
+  return { start: fmt(monday), end: fmt(sunday), label: dateToWeekLabel(fmt(monday)) };
 }
 
 // ─── HANDLER PRINCIPAL ────────────────────────────────────────────────────────
@@ -402,5 +461,68 @@ module.exports = async function handler(req, res) {
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
 
-  return res.status(400).json({ error: `Type inconnu : ${type}. Valeurs : mindshare, tee_rank, all, status, marketing, marketing_sheet` });
+  // ── NOX_SHEET : lit Nox_Mindshare depuis Google Sheets ──────────────────────
+  if (type === "nox_sheet") {
+    if (!saEmail || !saKey) {
+      return res.status(503).json({ error: "Credentials Google non configurés", enabled: false });
+    }
+    try {
+      res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate");
+      const accessToken = await getGoogleAccessToken(saEmail, saKey);
+      const rows = await readNoxSheet(accessToken);
+      // Colonnes : Semaine(A) | RLC(B) | ZAMA(C) | ZAIFFER(D) | INCO(E) | FHENIX(F) | TEN(G) | Fetched_At(H)
+      const history = rows
+        .filter(r => r[0])
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+        .map(r => ({
+          week:    r[0],
+          RLC:     parseFloat(r[1]) || 0,
+          ZAMA:    parseFloat(r[2]) || 0,
+          ZAIFFER: parseFloat(r[3]) || 0,
+          INCO:    parseFloat(r[4]) || 0,
+          FHENIX:  parseFloat(r[5]) || 0,
+          TEN:     parseFloat(r[6]) || 0,
+        }));
+      return res.status(200).json({ history, tokens: NOX_TOKENS, labels: NOX_LABELS, fetchedAt: new Date().toISOString() });
+    } catch (err) { return res.status(500).json({ error: err.message }); }
+  }
+
+  // ── NOX_WRITE : fetche Kaito + écrit dans Nox_Mindshare ─────────────────────
+  // Paramètres optionnels : ?from=YYYY-MM-DD&to=YYYY-MM-DD pour backfiller une semaine précise
+  if (type === "nox_write") {
+    if (!saEmail || !saKey) {
+      return res.status(503).json({ error: "Credentials Google non configurés", enabled: false });
+    }
+    try {
+      // Période : from/to en query string OU semaine courante par défaut
+      let weekStart = start, weekEnd = end, weekLabel = label;
+      if (req.query.from && req.query.to) {
+        const bounds = weekBoundsFromDate(req.query.from);
+        weekStart = bounds.start; weekEnd = bounds.end; weekLabel = bounds.label;
+      }
+      const accessToken = await getGoogleAccessToken(saEmail, saKey);
+      const exists = await noxWeekExists(accessToken, weekLabel);
+      if (exists) {
+        return res.status(200).json({ skipped: true, reason: `${weekLabel} déjà présente dans Nox_Mindshare` });
+      }
+      // Fetch les 6 tokens en batch
+      const scores = await fetchInBatches(NOX_TOKENS, weekStart, weekEnd, apiKey);
+      const total  = scores.reduce((s, x) => s + x.value, 0);
+      const pcts   = Object.fromEntries(scores.map(x => [x.token, total > 0 ? parseFloat(((x.value / total) * 100).toFixed(4)) : 0]));
+      const row = [
+        weekLabel,
+        pcts.RLC     ?? 0,
+        pcts.ZAMA    ?? 0,
+        pcts.ZAIFFER ?? 0,
+        pcts.INCO    ?? 0,
+        pcts.FHENIX  ?? 0,
+        pcts.TEN     ?? 0,
+        new Date().toISOString(),
+      ];
+      await appendNoxRow(accessToken, row);
+      return res.status(200).json({ written: true, week: weekLabel, data: pcts, fetchedAt: new Date().toISOString() });
+    } catch (err) { return res.status(500).json({ error: err.message }); }
+  }
+
+  return res.status(400).json({ error: `Type inconnu : ${type}. Valeurs : mindshare, tee_rank, all, status, marketing, marketing_sheet, nox_sheet, nox_write` });
 };
