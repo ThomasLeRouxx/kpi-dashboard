@@ -50,15 +50,19 @@ async function fetchMindshare(token, start, end) {
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
     const r = await fetch(url, {
-      headers: { "Authorization": `Bearer ${apiKey}` },
+      headers: { "x-api-key": apiKey },
       signal: controller.signal,
     });
     clearTimeout(timeout);
     if (r.status === 403 || r.status === 404) return 0;
     if (!r.ok) { console.error(`  ⚠️  Kaito mindshare ${token}: HTTP ${r.status}`); return 0; }
     const data = await r.json();
-    // Gérer les différentes structures de réponse
+    // Format 1 : { mindshare: number }
     if (typeof data.mindshare === "number") return data.mindshare;
+    // Format 2 : { mindshare: { "YYYY-MM-DD": number, ... } } → somme journalière
+    if (data.mindshare && typeof data.mindshare === "object" && !Array.isArray(data.mindshare)) {
+      return Object.values(data.mindshare).reduce((s, v) => s + (typeof v === "number" ? v : 0), 0);
+    }
     if (data.data && typeof data.data.mindshare === "number") return data.data.mindshare;
     if (Array.isArray(data.data) && data.data.length > 0) return data.data[0].mindshare ?? 0;
     return 0;
@@ -86,7 +90,7 @@ async function fetchSmartFollowers() {
   const apiKey = process.env.KAITO_API_KEY;
   const url = `https://api.kaito.ai/api/v1/smart_followers?handle=iEx_ec`;
   try {
-    const r = await fetch(url, { headers: { "Authorization": `Bearer ${apiKey}` } });
+    const r = await fetch(url, { headers: { "x-api-key": apiKey } });
     if (!r.ok) { console.error(`  ⚠️  Smart followers HTTP ${r.status}`); return null; }
     const data = await r.json();
     return data.smart_followers ?? data.count ?? data.total ?? null;
@@ -101,7 +105,7 @@ async function fetchMentions(start, end) {
   const apiKey = process.env.KAITO_API_KEY;
   const url = `https://api.kaito.ai/api/v1/mentions?token=RLC&start_date=${start}&end_date=${end}`;
   try {
-    const r = await fetch(url, { headers: { "Authorization": `Bearer ${apiKey}` } });
+    const r = await fetch(url, { headers: { "x-api-key": apiKey } });
     if (!r.ok) { console.error(`  ⚠️  Mentions HTTP ${r.status}`); return null; }
     const data = await r.json();
     if (!data || typeof data !== "object" || Object.keys(data).length === 0) return null;
@@ -118,7 +122,7 @@ async function fetchEngagement(start, end) {
   const apiKey = process.env.KAITO_API_KEY;
   const url = `https://api.kaito.ai/api/v1/engagement?token=RLC&start_date=${start}&end_date=${end}`;
   try {
-    const r = await fetch(url, { headers: { "Authorization": `Bearer ${apiKey}` } });
+    const r = await fetch(url, { headers: { "x-api-key": apiKey } });
     if (!r.ok) { console.error(`  ⚠️  Engagement HTTP ${r.status}`); return { total: null, smart: null }; }
     const data = await r.json();
     if (!data || typeof data !== "object") return { total: null, smart: null };

@@ -66,19 +66,22 @@ async function fetchWeeklyMindshare(token, start, end, apiKey) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(url, {
-      headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
+      headers: { "x-api-key": apiKey, "Accept": "application/json" },
       signal: controller.signal,
     });
     clearTimeout(timeout);
-    // 403 = token non accessible avec cette clé → on skip (ne pas bloquer le calcul)
     if (!res.ok) {
       console.error(`Kaito ${token}: HTTP ${res.status}`);
       return 0;
     }
     let data;
     try { data = await res.json(); } catch { return 0; }
-    // Essayer plusieurs structures de réponse possibles
+    // Format 1 : { mindshare: number }
     if (typeof data.mindshare === "number") return data.mindshare;
+    // Format 2 : { mindshare: { "YYYY-MM-DD": number, ... } } → somme des valeurs journalières
+    if (data.mindshare && typeof data.mindshare === "object" && !Array.isArray(data.mindshare)) {
+      return Object.values(data.mindshare).reduce((s, v) => s + (typeof v === "number" ? v : 0), 0);
+    }
     if (data.data && typeof data.data.mindshare === "number") return data.data.mindshare;
     if (Array.isArray(data.data) && data.data.length > 0) return data.data[0].mindshare ?? 0;
     return 0;
@@ -110,7 +113,7 @@ async function fetchSmartFollowers(handle, apiKey) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(url, {
-      headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
+      headers: { "x-api-key": apiKey, "Accept": "application/json" },
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -135,7 +138,7 @@ async function fetchMentionsStats(token, start, end, apiKey) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(url, {
-      headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
+      headers: { "x-api-key": apiKey, "Accept": "application/json" },
       signal: controller.signal,
     });
     clearTimeout(timeout);
