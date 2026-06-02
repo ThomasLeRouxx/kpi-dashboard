@@ -471,21 +471,28 @@ module.exports = async function handler(req, res) {
       }
       const token = req.query.token || "RLC";
       const url = `${KAITO_BASE}/mindshare?token=${encodeURIComponent(token)}&start_date=${weekStart}&end_date=${weekEnd}`;
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), 10000);
-      let status, body;
-      try {
-        const r = await fetch(url, {
-          headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
-          signal: controller.signal,
-        });
-        status = r.status;
-        body = await r.text();
-      } catch (e) {
-        return res.status(200).json({ week: weekLabel, token, url, error: e.message, apiKeyPresent: !!apiKey, apiKeyPrefix: apiKey ? apiKey.slice(0, 8) + "..." : null });
+
+      async function tryAuth(headers) {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 10000);
+        try {
+          const r = await fetch(url, { headers: { "Accept": "application/json", ...headers }, signal: controller.signal });
+          let body; try { body = await r.json(); } catch { body = await r.text(); }
+          return { status: r.status, body };
+        } catch (e) { return { status: null, error: e.message }; }
       }
-      let parsed; try { parsed = JSON.parse(body); } catch { parsed = null; }
-      return res.status(200).json({ week: weekLabel, token, url, httpStatus: status, body: parsed ?? body, apiKeyPresent: !!apiKey, apiKeyPrefix: apiKey ? apiKey.slice(0, 8) + "..." : null });
+
+      const [bearer, xApiKey] = await Promise.all([
+        tryAuth({ "Authorization": `Bearer ${apiKey}` }),
+        tryAuth({ "x-api-key": apiKey }),
+      ]);
+
+      return res.status(200).json({
+        week: weekLabel, token, url,
+        apiKeyPrefix: apiKey ? apiKey.slice(0, 8) + "..." : null,
+        "Authorization:Bearer": bearer,
+        "x-api-key": xApiKey,
+      });
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
 
