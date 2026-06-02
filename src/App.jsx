@@ -1223,7 +1223,7 @@ function MarketingDashboard() {
         </div>
         {noxLoading
           ? <div style={{ textAlign:"center", padding:"32px 0", color:"#7A8299", fontSize:12, fontFamily:"'IBM Plex Mono',monospace" }}>Chargement…</div>
-          : <NoxMindshareChart history={noxHistory} />
+          : <NoxMindshareChart history={(noxHistory ?? []).filter(d => d.week >= "2026-W18")} />
         }
       </div>
 
