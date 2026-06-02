@@ -461,7 +461,7 @@ module.exports = async function handler(req, res) {
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
 
-  // ── NOX_DEBUG : retourne les valeurs brutes Kaito pour les tokens Nox ────────
+  // ── NOX_DEBUG : retourne status HTTP + body brut Kaito pour RLC ─────────────
   if (type === "nox_debug") {
     try {
       let weekStart = start, weekEnd = end, weekLabel = label;
@@ -469,14 +469,23 @@ module.exports = async function handler(req, res) {
         const bounds = weekBoundsFromDate(req.query.from);
         weekStart = bounds.start; weekEnd = bounds.end; weekLabel = bounds.label;
       }
-      const scores = await fetchInBatches(NOX_TOKENS, weekStart, weekEnd, apiKey);
-      const total  = scores.reduce((s, x) => s + x.value, 0);
-      return res.status(200).json({
-        week: weekLabel, dateRange: { start: weekStart, end: weekEnd },
-        raw: scores,
-        total_raw: total,
-        pcts: Object.fromEntries(scores.map(x => [x.token, total > 0 ? parseFloat(((x.value / total) * 100).toFixed(4)) : 0])),
-      });
+      const token = req.query.token || "RLC";
+      const url = `${KAITO_BASE}/mindshare?token=${encodeURIComponent(token)}&start_date=${weekStart}&end_date=${weekEnd}`;
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 10000);
+      let status, body;
+      try {
+        const r = await fetch(url, {
+          headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" },
+          signal: controller.signal,
+        });
+        status = r.status;
+        body = await r.text();
+      } catch (e) {
+        return res.status(200).json({ week: weekLabel, token, url, error: e.message, apiKeyPresent: !!apiKey, apiKeyPrefix: apiKey ? apiKey.slice(0, 8) + "..." : null });
+      }
+      let parsed; try { parsed = JSON.parse(body); } catch { parsed = null; }
+      return res.status(200).json({ week: weekLabel, token, url, httpStatus: status, body: parsed ?? body, apiKeyPresent: !!apiKey, apiKeyPrefix: apiKey ? apiKey.slice(0, 8) + "..." : null });
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
 
