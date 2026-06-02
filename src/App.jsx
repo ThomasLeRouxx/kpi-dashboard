@@ -1141,18 +1141,11 @@ function MarketingDashboard() {
             <div style={{ fontSize:11, color:"#b0bec8", fontFamily:"'IBM Plex Mono',monospace", paddingTop:8 }}>Aucune donnée</div>
           ) : (
             <>
-              <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
-                <div style={{ fontSize:28, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", color: noxRankPct >= 50 ? "#10B981" : "#EF4444" }}>
-                  {noxRankPct.toFixed(0)}%
-                </div>
-                {lastNoxRank && (
-                  <div style={{ fontSize:13, fontWeight:600, fontFamily:"'IBM Plex Mono',monospace", color: lastNoxRank === 1 ? "#10B981" : lastNoxRank === 2 ? "#FCD15A" : "#EF4444" }}>
-                    #{lastNoxRank} ce week
-                  </div>
-                )}
+              <div style={{ fontSize:28, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace", color: lastNoxRank === 1 ? "#10B981" : lastNoxRank === 2 ? "#FCD15A" : "#EF4444" }}>
+                #{lastNoxRank}
               </div>
               <div style={{ fontSize:11, color:"#7A8299", margin:"4px 0 14px", fontFamily:"'IBM Plex Mono',monospace" }}>
-                Semaines en #1 · vs ZAMA, Inco, Fhenix
+                Rang semaine en cours · vs ZAMA, Inco, Fhenix
               </div>
               <svg width="100%" viewBox="0 0 200 56" style={{ overflow:"visible" }}>
                 {[1,2,3,4].map(rank => (
