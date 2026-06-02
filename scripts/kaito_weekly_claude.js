@@ -20,8 +20,8 @@ const KPI_NAMES = {
 
 const PRIVACY_TOKENS = ["ZAMA","AZTEC","ARCIUM","MIDEN","ALEO","RAIL","RLC","ROSE","PHA","SCRT","INCO"];
 const TEE_TOKENS     = ["RLC","ROSE","PHA","SCRT"];
-// ⚠️  Identifiants Kaito à vérifier pour ZAIFFER, FHENIX, TEN si retours à 0
-const NOX_TOKENS     = ["RLC","ZAMA","ZAIFFER","INCO","FHENIX","TEN"];
+// ZAIFFER et TEN non indexés dans Kaito → retirés du référentiel
+const NOX_TOKENS     = ["RLC","ZAMA","INCO","FHENIX"];
 
 // ── Calcul semaine W-2 ────────────────────────────────────────────────────────
 function getWeekRange() {
@@ -369,12 +369,10 @@ async function main() {
   } else {
     const noxRow = [
       label,
-      noxPcts.RLC     ?? 0,
-      noxPcts.ZAMA    ?? 0,
-      noxPcts.ZAIFFER ?? 0,
-      noxPcts.INCO    ?? 0,
-      noxPcts.FHENIX  ?? 0,
-      noxPcts.TEN     ?? 0,
+      noxPcts.RLC    ?? 0,
+      noxPcts.ZAMA   ?? 0,
+      noxPcts.INCO   ?? 0,
+      noxPcts.FHENIX ?? 0,
       new Date().toISOString(),
     ];
     try {

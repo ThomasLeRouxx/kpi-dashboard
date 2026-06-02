@@ -789,15 +789,13 @@ function ImpressionsChart({ labels, iexec, techAmb, badges, engagement, hideTech
 
 // ─── NOX MINDSHARE CHART ──────────────────────────────────────────────────────
 const NOX_COLORS = {
-  RLC:     "#FCD15A",
-  ZAMA:    "#3B82F6",
-  ZAIFFER: "#10B981",
-  INCO:    "#8B5CF6",
-  FHENIX:  "#EF4444",
-  TEN:     "#F97316",
+  RLC:    "#FCD15A",
+  ZAMA:   "#3B82F6",
+  INCO:   "#8B5CF6",
+  FHENIX: "#EF4444",
 };
 const NOX_DISPLAY = {
-  RLC:"iExec (RLC)", ZAMA:"ZAMA", ZAIFFER:"Zaiffer", INCO:"Inco Network", FHENIX:"Fhenix", TEN:"TEN Protocol"
+  RLC:"iExec (RLC)", ZAMA:"ZAMA", INCO:"Inco Network", FHENIX:"Fhenix"
 };
 
 function NoxMindshareChart({ history }) {
@@ -808,7 +806,7 @@ function NoxMindshareChart({ history }) {
     </div>
   );
 
-  const tokens = ["RLC","ZAMA","ZAIFFER","INCO","FHENIX","TEN"];
+  const tokens = ["RLC","ZAMA","INCO","FHENIX"];
   const W = 560; const H = 160;
   const PAD_L = 32; const PAD_R = 8; const PAD_T = 8; const PAD_B = 4;
   const chartW = W - PAD_L - PAD_R;

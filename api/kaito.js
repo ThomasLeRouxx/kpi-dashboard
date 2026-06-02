@@ -31,8 +31,9 @@ const TEE_TOKENS = ["RLC","ROSE","PHA","SCRT"];
 
 // Référentiel Protocol Nox — iExec vs concurrents directs FHE/TEE
 // ⚠️  Identifiants Kaito — à ajuster si l'API retourne 0 pour certains tokens
-const NOX_TOKENS  = ["RLC","ZAMA","ZAIFFER","INCO","FHENIX","TEN"];
-const NOX_LABELS  = { RLC:"iExec (RLC)", ZAMA:"ZAMA", ZAIFFER:"Zaiffer", INCO:"Inco Network", FHENIX:"Fhenix", TEN:"TEN Protocol" };
+// ZAIFFER et TEN non indexés dans Kaito → retirés du référentiel
+const NOX_TOKENS  = ["RLC","ZAMA","INCO","FHENIX"];
+const NOX_LABELS  = { RLC:"iExec (RLC)", ZAMA:"ZAMA", INCO:"Inco Network", FHENIX:"Fhenix" };
 const NOX_TAB     = "Nox_Mindshare";
 
 // Noms des KPIs dans Sheets (colonne "Nom du KPI")
@@ -508,18 +509,16 @@ module.exports = async function handler(req, res) {
       res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate");
       const accessToken = await getGoogleAccessToken(saEmail, saKey);
       const rows = await readNoxSheet(accessToken);
-      // Colonnes : Semaine(A) | RLC(B) | ZAMA(C) | ZAIFFER(D) | INCO(E) | FHENIX(F) | TEN(G) | Fetched_At(H)
+      // Colonnes : Semaine(A) | RLC(B) | ZAMA(C) | INCO(D) | FHENIX(E) | Fetched_At(F)
       const history = rows
         .filter(r => r[0])
         .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
         .map(r => ({
-          week:    r[0],
-          RLC:     parseFloat(r[1]) || 0,
-          ZAMA:    parseFloat(r[2]) || 0,
-          ZAIFFER: parseFloat(r[3]) || 0,
-          INCO:    parseFloat(r[4]) || 0,
-          FHENIX:  parseFloat(r[5]) || 0,
-          TEN:     parseFloat(r[6]) || 0,
+          week:   r[0],
+          RLC:    parseFloat(r[1]) || 0,
+          ZAMA:   parseFloat(r[2]) || 0,
+          INCO:   parseFloat(r[3]) || 0,
+          FHENIX: parseFloat(r[4]) || 0,
         }));
       return res.status(200).json({ history, tokens: NOX_TOKENS, labels: NOX_LABELS, fetchedAt: new Date().toISOString() });
     } catch (err) { return res.status(500).json({ error: err.message }); }
@@ -549,12 +548,10 @@ module.exports = async function handler(req, res) {
       const pcts   = Object.fromEntries(scores.map(x => [x.token, total > 0 ? parseFloat(((x.value / total) * 100).toFixed(4)) : 0]));
       const row = [
         weekLabel,
-        pcts.RLC     ?? 0,
-        pcts.ZAMA    ?? 0,
-        pcts.ZAIFFER ?? 0,
-        pcts.INCO    ?? 0,
-        pcts.FHENIX  ?? 0,
-        pcts.TEN     ?? 0,
+        pcts.RLC    ?? 0,
+        pcts.ZAMA   ?? 0,
+        pcts.INCO   ?? 0,
+        pcts.FHENIX ?? 0,
         new Date().toISOString(),
       ];
       await appendNoxRow(accessToken, row);
