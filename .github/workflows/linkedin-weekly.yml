@@ -1,0 +1,22 @@
+name: LinkedIn Weekly Metrics
+
+on:
+  schedule:
+    - cron: '0 10 * * 1'  # Chaque lundi à 10h UTC
+  workflow_dispatch:       # Déclenchement manuel possible
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Collect LinkedIn metrics
+        run: node scripts/linkedin_weekly.js
+        env:
+          LINKEDIN_ACCESS_TOKEN:        ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+          LINKEDIN_ORGANIZATION_ID:     ${{ secrets.LINKEDIN_ORGANIZATION_ID }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_PRIVATE_KEY:           ${{ secrets.GOOGLE_PRIVATE_KEY }}
