@@ -461,6 +461,25 @@ module.exports = async function handler(req, res) {
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
 
+  // ── NOX_DEBUG : retourne les valeurs brutes Kaito pour les tokens Nox ────────
+  if (type === "nox_debug") {
+    try {
+      let weekStart = start, weekEnd = end, weekLabel = label;
+      if (req.query.from) {
+        const bounds = weekBoundsFromDate(req.query.from);
+        weekStart = bounds.start; weekEnd = bounds.end; weekLabel = bounds.label;
+      }
+      const scores = await fetchInBatches(NOX_TOKENS, weekStart, weekEnd, apiKey);
+      const total  = scores.reduce((s, x) => s + x.value, 0);
+      return res.status(200).json({
+        week: weekLabel, dateRange: { start: weekStart, end: weekEnd },
+        raw: scores,
+        total_raw: total,
+        pcts: Object.fromEntries(scores.map(x => [x.token, total > 0 ? parseFloat(((x.value / total) * 100).toFixed(4)) : 0])),
+      });
+    } catch (err) { return res.status(500).json({ error: err.message }); }
+  }
+
   // ── NOX_SHEET : lit Nox_Mindshare depuis Google Sheets ──────────────────────
   if (type === "nox_sheet") {
     if (!saEmail || !saKey) {
@@ -494,9 +513,9 @@ module.exports = async function handler(req, res) {
       return res.status(503).json({ error: "Credentials Google non configurés", enabled: false });
     }
     try {
-      // Période : from/to en query string OU semaine courante par défaut
+      // Période : from en query string OU semaine courante par défaut
       let weekStart = start, weekEnd = end, weekLabel = label;
-      if (req.query.from && req.query.to) {
+      if (req.query.from) {
         const bounds = weekBoundsFromDate(req.query.from);
         weekStart = bounds.start; weekEnd = bounds.end; weekLabel = bounds.label;
       }
